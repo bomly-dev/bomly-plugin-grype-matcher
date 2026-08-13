@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: builtin
+            tags: ""
+          - name: external
+            tags: "bomly_external_grype"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Check Go formatting
+        if: matrix.variant.name == 'builtin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$(gofmt -l .)"
+          if [[ -n "${files}" ]]; then
+            echo "${files}"
+            exit 1
+          fi
+
+      - name: Validate plugin manifest
+        if: matrix.variant.name == 'builtin'
+        run: python -m json.tool bomly-plugin.json >/dev/null
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ matrix.variant.tags }}" ]]; then
+            go test -tags "${{ matrix.variant.tags }}" ./...
+          else
+            go test ./...
+          fi
+
+      - name: Run go vet
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ matrix.variant.tags }}" ]]; then
+            go vet -tags "${{ matrix.variant.tags }}" ./...
+          else
+            go vet ./...
+          fi
+
+      - name: Build plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ matrix.variant.tags }}" ]]; then
+            go build -tags "${{ matrix.variant.tags }}" -o bin/plugin ./cmd/bomly-plugin-grype-matcher
+          else
+            go build -o bin/plugin ./cmd/bomly-plugin-grype-matcher
+          fi
+
+      - name: Check module metadata drift
+        if: matrix.variant.name == 'builtin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum

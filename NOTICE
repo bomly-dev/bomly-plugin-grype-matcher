@@ -1,0 +1,10 @@
+bomly-plugin-grype-matcher
+Copyright 2026 Bomly (bomly.dev)
+
+This product includes software developed at Bomly (https://bomly.dev),
+originally released as part of the Bomly CLI
+(https://github.com/bomly-dev/bomly-cli).
+
+Licensed under the Apache License, Version 2.0. Note that Go module zips
+published from this repository do not automatically carry this NOTICE file;
+it applies to the source repository and the release archives built from it.
