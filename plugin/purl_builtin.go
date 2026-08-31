@@ -10,7 +10,7 @@ import (
 	grypedistro "github.com/anchore/grype/grype/distro"
 	grypepkg "github.com/anchore/grype/grype/pkg"
 	syftPkg "github.com/anchore/syft/syft/pkg"
-	"github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/purlkit"
 )
 
 // sourceRPMPattern extracts the name, version, release, and arch from a source
@@ -27,8 +27,8 @@ var sourceRPMPattern = regexp.MustCompile(`^(?P<name>.*)-(?P<version>.*)-(?P<rel
 // qualifier is the one carrier that survives both live image scans and SBOM
 // input. This mirrors Grype's own PURL provider.
 func distroFromPURL(purl string) *grypedistro.Distro {
-	parsed := sdk.ParsePackageURL(purl)
-	if parsed == nil {
+	parsed, err := purlkit.Parse(purl)
+	if err != nil {
 		return nil
 	}
 	for _, qualifier := range parsed.Qualifiers {
@@ -52,8 +52,8 @@ func distroFromPURL(purl string) *grypedistro.Distro {
 // package, a Debian source package, a source RPM), so without upstreams the OS
 // matchers still under-report. This mirrors Grype's own PURL provider.
 func upstreamsFromPURL(purl, name string, syftType syftPkg.Type) []grypepkg.UpstreamPackage {
-	parsed := sdk.ParsePackageURL(purl)
-	if parsed == nil {
+	parsed, err := purlkit.Parse(purl)
+	if err != nil {
 		return nil
 	}
 	var upstreams []grypepkg.UpstreamPackage

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/testkit"
 )
 
 func TestParseGrypeJSONOutputCarriesRichFields(t *testing.T) {
@@ -106,13 +107,8 @@ func TestParseGrypeJSONOutputSkipsFirstPartyPURLs(t *testing.T) {
 
 func TestFirstPartyPURLs(t *testing.T) {
 	graph := sdk.New()
-	app := sdk.NewDependency(sdk.Dependency{Coordinates: sdk.Coordinates{
-		Name: "my-app", Version: "1.0.0", PURL: "pkg:npm/my-app@1.0.0",
-		Ecosystem: "npm", Type: sdk.PackageTypeApplication, FirstParty: true,
-	}})
-	dep := sdk.NewDependency(sdk.Dependency{Coordinates: sdk.Coordinates{
-		Name: "lodash", Version: "4.17.15", PURL: "pkg:npm/lodash@4.17.15", Ecosystem: "npm",
-	}})
+	app := testkit.MustDependencyNode(t, "pkg:npm/my-app@1.0.0")
+	dep := testkit.MustDependencyNode(t, "pkg:npm/lodash@4.17.15")
 	_ = graph.AddNode(app)
 	_ = graph.AddNode(dep)
 

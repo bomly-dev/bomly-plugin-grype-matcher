@@ -189,11 +189,11 @@ func firstPartyPURLs(g *sdk.Graph) map[string]struct{} {
 		return nil
 	}
 	skip := make(map[string]struct{})
-	for _, dep := range g.Nodes() {
-		if dep == nil || sdk.NodeIsEnrichable(dep) {
+	for _, dep := range g.DependencyNodes() {
+		if dep == nil || dep.RegistryMatchEligible() {
 			continue
 		}
-		for _, purl := range []string{strings.TrimSpace(dep.PURL), sdk.CanonicalPackageURLFromDependency(dep)} {
+		for _, purl := range []string{strings.TrimSpace(dep.PURL), dep.NodeID()} {
 			if purl != "" {
 				skip[purl] = struct{}{}
 			}

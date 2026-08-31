@@ -38,16 +38,25 @@ func ToGraph(doc *Document) (*sdk.Graph, error) {
 		if purl := strings.TrimSpace(component.PURL); purl != "" {
 			packageID = purl
 		}
-		pkg := sdk.NewDependencyWithID(packageID, sdk.Dependency{Coordinates: sdk.Coordinates{Name: component.Name,
-			Version: component.Version,
-
+		// Identity is minted by the constructor now (ADR-0041): a node's ID
+		// is its canonical package URL, so no ID is passed in. A component
+		// whose coordinates cannot mint a well-formed PURL is skipped rather
+		// than added under a synthetic ID -- an SBOM component with no usable
+		// identity is not a dependency this graph can say anything about.
+		pkg, err := sdk.NewDependencyNode(sdk.Coordinates{
+			Name:           component.Name,
+			Version:        component.Version,
 			Ecosystem:      ecosystem,
 			PackageManager: packageManager,
 			Type:           sdk.ParsePackageType(component.Type),
-			PURL:           strings.TrimSpace(component.PURL)}, Scopes: sdk.ScopesOf(sdk.Scope(component.Scope)),
-
-			Copyright: component.Copyright,
+			PURL:           strings.TrimSpace(component.PURL),
 		})
+		if err != nil {
+			continue
+		}
+		pkg.Scopes = sdk.ScopesOf(sdk.Scope(component.Scope))
+		pkg.Copyright = component.Copyright
+		packageID = pkg.NodeID()
 		sdk.SetDetectionLicenses(pkg, graphLicenses(component.Licenses))
 
 		if _, exists := depsGraph.Node(packageID); !exists {
