@@ -1,10 +1,16 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: read
@@ -36,22 +42,40 @@ jobs:
           cache-dependency-path: |
             go.sum
 
-      - name: Resolve release tag
-        id: version
-        shell: bash
+      - name: Require main branch
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-          else
-            git fetch --tags --force
-            tag="$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Release must be run from main, got ${GITHUB_REF}" >&2
+            exit 1
           fi
-          if [[ -z "${tag}" ]]; then
-            echo "No release tag found at HEAD" >&2
+
+      - name: Compute next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+          current="${latest_tag#v}"
+          if [[ -z "${current}" ]]; then
+            current="0.0.0"
+          fi
+          IFS=. read -r major minor patch <<< "${current}"
+          case "${BUMP}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+            *) echo "Unsupported bump type ${BUMP}" >&2; exit 1 ;;
+          esac
+          tag="v${major}.${minor}.${patch}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag ${tag} already exists" >&2
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
 
       - name: Validate
         shell: bash
@@ -67,6 +91,29 @@ jobs:
           go vet ./...
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+
+      - name: Sync plugin manifest and tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The manifest ships inside every release archive, so a stale version
+          # there means an installed plugin misreports itself. It is derived
+          # from the release rather than maintained by hand, and committed
+          # before the tag so the tag points at the manifest it ships.
+          tmp="$(mktemp)"
+          jq --arg v "${VERSION}" '.version = $v' bomly-plugin.json > "${tmp}"
+          mv "${tmp}" bomly-plugin.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- bomly-plugin.json; then
+            git add bomly-plugin.json
+            git commit -m "chore: release ${TAG}"
+            git push origin HEAD:main
+          fi
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
 
       - name: Create release notes
         shell: bash
