@@ -23,31 +23,39 @@ func FromDepGraph(g *sdk.Graph, opts BuildOptions) (*Document, error) {
 	components := make([]Component, 0, componentCount)
 	depsByRef := make(map[string][]string, componentCount)
 
-	g.WalkNodes(func(pkg *sdk.Dependency) bool {
+	// Dependency nodes only: an SBOM component is a package, and the graph now
+	// also holds manifests and modules, which are structural rather than
+	// things to emit as components.
+	for _, pkg := range g.DependencyNodes() {
 		component := Component{
-			ID:             pkg.ID,
+			ID:             pkg.NodeID(),
 			Name:           pkg.EcosystemName(),
 			Version:        pkg.Version,
 			Scope:          string(pkg.PrimaryScope()),
-			PURL:           pkg.PURL,
+			PURL:           pkg.NodeID(),
 			Ecosystem:      string(pkg.Ecosystem),
 			PackageManager: pkg.PackageManager.Name(),
 			Type:           string(pkg.Type),
 			Copyright:      pkg.Copyright,
 			Licenses:       componentLicenses(sdk.DetectionLicenses(pkg)),
 		}
-		enrichComponentFromRegistry(&component, opts.Registry, pkg.PURL)
+		enrichComponentFromRegistry(&component, opts.Registry, pkg.NodeID())
 		components = append(components, component)
-		depsByRef[pkg.ID] = nil
-		return true
-	})
+		depsByRef[pkg.NodeID()] = nil
+	}
 
 	sort.Slice(components, func(i, j int) bool {
 		return components[i].ID < components[j].ID
 	})
 
-	g.WalkEdges(func(from, to *sdk.Dependency) bool {
-		depsByRef[from.ID] = append(depsByRef[from.ID], to.ID)
+	// WalkTypedEdges rather than WalkEdges: an SBOM's dependency list is the
+	// dependency edges, and a manifest-to-module edge is structural. Emitting
+	// it would put a relationship in the document that no detector asserted.
+	g.WalkTypedEdges(func(from, to sdk.GraphNode, kind sdk.EdgeKind) bool {
+		if kind != sdk.EdgeKindDependsOn {
+			return true
+		}
+		depsByRef[from.NodeID()] = append(depsByRef[from.NodeID()], to.NodeID())
 		return true
 	})
 
@@ -66,7 +74,7 @@ func FromDepGraph(g *sdk.Graph, opts BuildOptions) (*Document, error) {
 	roots := g.Roots()
 	rootIDs := make([]string, 0, len(roots))
 	for _, r := range roots {
-		rootIDs = append(rootIDs, r.ID)
+		rootIDs = append(rootIDs, r.NodeID())
 	}
 	if opts.RootComponentID != "" {
 		for _, c := range components {

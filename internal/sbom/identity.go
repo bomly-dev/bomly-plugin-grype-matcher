@@ -3,12 +3,20 @@ package sbom
 import (
 	"strings"
 
-	"github.com/anchore/packageurl-go"
 	"github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/purlkit"
 )
 
-func parsePURL(value string) *packageurl.PackageURL {
-	return sdk.ParsePackageURL(strings.TrimSpace(value))
+// parsePURL delegates to purlkit, the SDK's kit over the official
+// packageurl-go. sdk.ParsePackageURL was the deprecated anchore-fork entry
+// point and is gone; it returned nil on failure, so callers keep the same
+// shape here rather than growing an error path.
+func parsePURL(value string) *purlkit.PURL {
+	parsed, err := purlkit.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return nil
+	}
+	return &parsed
 }
 
 // purlTypeEcosystems inverts sdk.PackageURLTypeForValues for the purl types

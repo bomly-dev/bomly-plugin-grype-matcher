@@ -189,11 +189,35 @@ func firstPartyPURLs(g *sdk.Graph) map[string]struct{} {
 		return nil
 	}
 	skip := make(map[string]struct{})
-	for _, dep := range g.Nodes() {
-		if dep == nil || sdk.NodeIsEnrichable(dep) {
+	// Module nodes first. The project's own artifacts -- workspace members,
+	// reactor modules -- used to be dependency nodes carrying FirstParty, and
+	// this walked DependencyNodes() to find them. ADR-0041 made ownership the
+	// node kind, so they are module nodes and DependencyNodes() never yields
+	// one: walking only dependencies would have silently stopped skipping
+	// them, and grype findings against the project's own packages would have
+	// been admitted to the registry.
+	for _, module := range g.ModuleNodes() {
+		if module == nil {
 			continue
 		}
-		for _, purl := range []string{strings.TrimSpace(dep.PURL), sdk.CanonicalPackageURLFromDependency(dep)} {
+		for _, purl := range []string{strings.TrimSpace(module.Coordinates.PURL), module.NodeID()} {
+			if purl != "" {
+				skip[purl] = struct{}{}
+			}
+		}
+	}
+	// A dependency node can still be ineligible for registry matching on its
+	// own terms -- a git-sourced package, for instance -- and those are
+	// skipped too.
+	for _, dep := range g.DependencyNodes() {
+		if dep == nil || dep.RegistryMatchEligible() {
+			continue
+		}
+		// Coordinates.PURL explicitly: PURL is a method on the node now and
+		// shadows the embedded field. Both spellings are still wanted -- the
+		// coordinate PURL is what the source said, the node ID is the
+		// canonical form -- so grype output matching either is skipped.
+		for _, purl := range []string{strings.TrimSpace(dep.Coordinates.PURL), dep.NodeID()} {
 			if purl != "" {
 				skip[purl] = struct{}{}
 			}

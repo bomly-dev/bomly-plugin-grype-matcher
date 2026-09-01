@@ -15,6 +15,7 @@ import (
 	grypepkg "github.com/anchore/grype/grype/pkg"
 	grypevuln "github.com/anchore/grype/grype/vulnerability"
 	"github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/testkit"
 )
 
 func TestDescriptor_Name(t *testing.T) {
@@ -79,7 +80,7 @@ func TestMatch_DBNotPresent_AttemptsDownloadAndReturnsEmpty(t *testing.T) {
 		DistConfigOverride: &badDist,
 	}
 
-	dep := sdk.NewDependency(sdk.Dependency{Coordinates: sdk.Coordinates{Ecosystem: "npm", Name: "lodash", Version: "4.17.15", PURL: "pkg:npm/lodash@4.17.15"}})
+	dep := testkit.MustDependencyNode(t, "pkg:npm/lodash@4.17.15")
 	g := sdk.New()
 	if err := g.AddNode(dep); err != nil {
 		t.Fatalf("AddNode: %v", err)
