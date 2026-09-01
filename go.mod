@@ -7,7 +7,7 @@ require (
 	github.com/anchore/clio v0.1.1
 	github.com/anchore/grype v0.117.0
 	github.com/anchore/syft v1.51.0
-	github.com/bomly-dev/bomly-sdk v0.7.0
+	github.com/bomly-dev/bomly-sdk v0.8.0
 	github.com/spdx/tools-golang v0.6.0-rc4
 	go.uber.org/zap v1.28.0
 )
