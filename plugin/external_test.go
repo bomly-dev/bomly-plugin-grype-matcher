@@ -107,14 +107,22 @@ func TestParseGrypeJSONOutputSkipsFirstPartyPURLs(t *testing.T) {
 
 func TestFirstPartyPURLs(t *testing.T) {
 	graph := sdk.New()
-	app := testkit.MustDependencyNode(t, "pkg:npm/my-app@1.0.0")
+	// The project's own artifact is a module node now, not a dependency
+	// carrying FirstParty -- ADR-0041 made ownership the node kind. That is
+	// exactly why this test matters: DependencyNodes() never yields a module,
+	// so a skip set built only from dependencies would silently stop covering
+	// the project's own packages.
+	app := testkit.MustModuleNode(t, "package.json", sdk.Coordinates{
+		Name: "my-app", Version: "1.0.0", Ecosystem: sdk.EcosystemNPM,
+		PURL: "pkg:npm/my-app@1.0.0",
+	})
 	dep := testkit.MustDependencyNode(t, "pkg:npm/lodash@4.17.15")
 	_ = graph.AddNode(app)
 	_ = graph.AddNode(dep)
 
 	skip := firstPartyPURLs(graph)
 	if _, ok := skip["pkg:npm/my-app@1.0.0"]; !ok {
-		t.Fatal("expected application-typed node PURL in the skip set")
+		t.Fatalf("the project's own module PURL must be in the skip set, got %v", skip)
 	}
 	if _, ok := skip["pkg:npm/lodash@4.17.15"]; ok {
 		t.Fatal("package-typed node PURL must not be in the skip set")
