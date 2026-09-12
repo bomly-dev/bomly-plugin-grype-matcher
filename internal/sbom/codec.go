@@ -19,9 +19,10 @@ import (
 // replaces; the SDK owns no SBOM format recognition, and neither cyclonedx-go
 // nor spdx/tools-golang can answer for a third format. But Identify is not a
 // small library to borrow: importing it linked the whole anchore/syft tree --
-// 120 packages of the lite build's closure -- into a build that recognizes
-// this format only to refuse it, and the codec carries no build tag, so the
-// cost was paid unconditionally.
+// over a hundred packages of this package's closure, in both plugin repos --
+// into a build that recognizes this format only to refuse it, and the codec
+// carries no build tag, so the cost was paid unconditionally. The measured
+// figures are in the pull request that made this change.
 //
 // What is reproduced here is the entirety of what Identify does: decode
 // schema.url and test it for this substring. TestSyftSniffAgreesWithSyftsOwnIdentify
