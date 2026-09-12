@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -29,13 +30,7 @@ func TestDescriptor_Name(t *testing.T) {
 	if len(d.SupportedEcosystems) == 0 {
 		t.Fatal("SupportedEcosystems should list the ecosystems builtin mode can match")
 	}
-	found := false
-	for _, eco := range d.SupportedEcosystems {
-		if eco == sdk.EcosystemNPM {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(d.SupportedEcosystems, sdk.EcosystemNPM)
 	if !found {
 		t.Errorf("SupportedEcosystems = %v, expected it to include npm", d.SupportedEcosystems)
 	}
