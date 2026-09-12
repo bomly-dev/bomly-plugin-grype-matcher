@@ -740,9 +740,11 @@ func mustSyftJSONFixture(t *testing.T) []byte {
 }
 
 // A PURL Bomly emitted must name an ecosystem Bomly recognises when it is read
-// back in. ParseEcosystem only knows Bomly's own identifiers, so every purl
-// type whose spec name differs from the ecosystem name (pkg:deb for dpkg,
-// pkg:cran for r, ...) needs an entry in purlTypeEcosystems. See issue #317.
+// back in. The join lives in the SDK as sdk.EcosystemForPURLType, the declared
+// reverse of sdk.PackageURLTypeForValues; this test pins the round trip from
+// this repo's side, so an SDK bump that stopped answering for a purl type
+// Bomly emits (pkg:deb for dpkg, pkg:cran for r, ...) fails here rather than
+// silently dropping the ecosystem on SBOM ingest. See issue #317.
 func TestEcosystemFromPURLTypeRoundTripsEmittedPURLs(t *testing.T) {
 	// pkg:hex is emitted for both Elixir (mix) and Erlang (rebar) and nothing
 	// in the PURL says which, so it is deliberately left unresolved rather
@@ -758,9 +760,9 @@ func TestEcosystemFromPURLTypeRoundTripsEmittedPURLs(t *testing.T) {
 		if ambiguous[purlType] {
 			continue
 		}
-		got := ecosystemFromPURLType(purlType)
+		got := sdk.EcosystemForPURLType(purlType)
 		if got == sdk.EcosystemUnknown {
-			t.Errorf("ecosystemFromPURLType(%q) = unknown; %q packages would lose their ecosystem on SBOM ingest", purlType, ecosystem)
+			t.Errorf("sdk.EcosystemForPURLType(%q) = unknown; %q packages would lose their ecosystem on SBOM ingest", purlType, ecosystem)
 		}
 	}
 }

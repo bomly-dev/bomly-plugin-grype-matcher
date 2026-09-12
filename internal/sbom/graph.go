@@ -24,7 +24,7 @@ func ToGraph(doc *Document) (*sdk.Graph, error) {
 		ecosystem := sdk.Ecosystem(strings.TrimSpace(component.Ecosystem))
 		if ecosystem == sdk.EcosystemUnknown {
 			if purl := parsePURL(component.PURL); purl != nil {
-				ecosystem = ecosystemFromPURLType(purl.Type)
+				ecosystem = sdk.EcosystemForPURLType(purl.Type)
 			}
 		}
 		packageManager := sdk.PackageManagerUnknown
