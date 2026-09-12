@@ -286,29 +286,20 @@ func spdxChecksums(digests []Digest) []common.Checksum {
 	return out
 }
 
+// spdxChecksumAlgorithm maps a digest algorithm spelling onto the SPDX 2.3
+// checksum algorithm constant that names it, delegating to the SDK's digest
+// registry rather than transcribing the enumeration here. The registry is
+// built from spdx/tools-golang's own constants and accepts every spelling
+// either SBOM format uses, so "SHA-256", "sha256" and "SHA256" all resolve.
+//
+// Returns "" when the algorithm is unknown or SPDX has no member for it, so
+// the digest is dropped rather than emitting a BOM that fails validation.
 func spdxChecksumAlgorithm(algorithm string) common.ChecksumAlgorithm {
-	switch strings.ToLower(strings.TrimSpace(algorithm)) {
-	case "md5":
-		return common.MD5
-	case "sha1", "sha-1":
-		return common.SHA1
-	case "sha224", "sha-224":
-		return common.SHA224
-	case "sha256", "sha-256":
-		return common.SHA256
-	case "sha384", "sha-384":
-		return common.SHA384
-	case "sha512", "sha-512":
-		return common.SHA512
-	case "sha3-256":
-		return common.SHA3_256
-	case "sha3-384":
-		return common.SHA3_384
-	case "sha3-512":
-		return common.SHA3_512
-	default:
+	parsed, err := sdk.ParseDigestAlgorithm(algorithm)
+	if err != nil {
 		return ""
 	}
+	return common.ChecksumAlgorithm(parsed.SPDXName())
 }
 
 func parseSPDXComponentType(p *v23.Package) string {
@@ -444,7 +435,7 @@ func parseSPDXPackageManager(refs []*v23.PackageExternalReference) string {
 func parseSPDXYcosystem(refs []*v23.PackageExternalReference) string {
 	purl := parseSPDXPURL(refs)
 	if parsed := parsePURL(purl); parsed != nil {
-		return string(ecosystemFromPURLType(parsed.Type))
+		return string(sdk.EcosystemForPURLType(parsed.Type))
 	}
 	return ""
 }

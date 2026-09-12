@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/bomly-dev/bomly-sdk"
 )
 
 type cycloneDXCodec struct {
@@ -263,15 +264,17 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// cycloneDXScope projects this document model's single scope onto CycloneDX's
+// scalar component scope, delegating the projection policy to the SDK.
+//
+// Which scope set becomes which CycloneDX value is Bomly's own vocabulary
+// statement, so the SDK owns it; transcribing it here is how the two drift.
+// The model carries one scope (the package's primary), so the set handed over
+// is that one value, which reproduces the previous mapping exactly: runtime
+// becomes required, development becomes excluded, anything else becomes no
+// scope at all.
 func cycloneDXScope(value string) cdx.Scope {
-	switch value {
-	case "runtime":
-		return cdx.ScopeRequired
-	case "development":
-		return cdx.ScopeExcluded
-	default:
-		return ""
-	}
+	return cdx.Scope(sdk.CycloneDXScope([]sdk.Scope{sdk.Scope(value)}))
 }
 
 func chooseRoot(doc *Document) *Component {
@@ -333,30 +336,20 @@ func cycloneDXHashes(digests []Digest) []cdx.Hash {
 	return out
 }
 
-// cycloneDXHashAlgorithm maps a digest algorithm string onto a CycloneDX hash
-// algorithm constant. Returns "" when the algorithm is unsupported so the
-// digest is dropped rather than emitting an invalid BOM.
+// cycloneDXHashAlgorithm maps a digest algorithm spelling onto the CycloneDX
+// hash algorithm constant that names it, delegating to the SDK's digest
+// registry rather than transcribing the enumeration here. The registry is
+// built from CycloneDX/cyclonedx-go's own constants and accepts every
+// spelling either SBOM format uses.
+//
+// Returns "" when the algorithm is unknown or CycloneDX has no member for it,
+// so the digest is dropped rather than emitting an invalid BOM.
 func cycloneDXHashAlgorithm(algorithm string) cdx.HashAlgorithm {
-	switch strings.ToLower(strings.TrimSpace(algorithm)) {
-	case "md5":
-		return cdx.HashAlgoMD5
-	case "sha1", "sha-1":
-		return cdx.HashAlgoSHA1
-	case "sha256", "sha-256":
-		return cdx.HashAlgoSHA256
-	case "sha384", "sha-384":
-		return cdx.HashAlgoSHA384
-	case "sha512", "sha-512":
-		return cdx.HashAlgoSHA512
-	case "sha3-256":
-		return cdx.HashAlgoSHA3_256
-	case "sha3-384":
-		return cdx.HashAlgoSHA3_384
-	case "sha3-512":
-		return cdx.HashAlgoSHA3_512
-	default:
+	parsed, err := sdk.ParseDigestAlgorithm(algorithm)
+	if err != nil {
 		return ""
 	}
+	return cdx.HashAlgorithm(parsed.CycloneDXName())
 }
 
 func cycloneDXEOLProperties(eol *EOL) []cdx.Property {
