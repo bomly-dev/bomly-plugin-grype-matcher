@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/spdxkit"
 	"github.com/spdx/tools-golang/spdx/v2/common"
 	v23 "github.com/spdx/tools-golang/spdx/v2/v2_3"
 )
@@ -21,6 +22,11 @@ func (spdx23Codec) encodeJSON(doc *Document, opts EncodeOptions) ([]byte, error)
 	usedIDs := make(map[string]int, len(doc.Components))
 	packages := make([]*v23.Package, 0, len(doc.Components))
 
+	// Collected while packages render, emitted once as the document's
+	// hasExtractedLicensingInfos: a reference is written per package but the
+	// text it names lives at document scope.
+	var extractedLicenses []spdxkit.ExtractedText
+
 	for _, c := range doc.Components {
 		base := sanitizeSPDXID(c.ID)
 		seq := usedIDs[base]
@@ -31,6 +37,9 @@ func (spdx23Codec) encodeJSON(doc *Document, opts EncodeOptions) ([]byte, error)
 		spdxID := common.ElementID(base)
 		idByComponent[c.ID] = spdxID
 
+		licenseValue, componentExtracted := spdxLicenseValue(c.Licenses)
+		extractedLicenses = append(extractedLicenses, componentExtracted...)
+
 		packages = append(packages, &v23.Package{
 			PackageName:               c.NameOrID(),
 			PackageSPDXIdentifier:     spdxID,
@@ -38,8 +47,8 @@ func (spdx23Codec) encodeJSON(doc *Document, opts EncodeOptions) ([]byte, error)
 			PackageDownloadLocation:   "NOASSERTION",
 			FilesAnalyzed:             false,
 			PackageComment:            spdxPackageComment(c),
-			PackageLicenseDeclared:    spdxLicenseValue(c.Licenses),
-			PackageLicenseConcluded:   spdxLicenseValue(c.Licenses),
+			PackageLicenseDeclared:    licenseValue,
+			PackageLicenseConcluded:   licenseValue,
 			PackageCopyrightText:      spdxCopyrightValue(c.Copyright),
 			PackageChecksums:          spdxChecksums(c.Digests),
 			PackageExternalReferences: spdxExternalReferences(c),
@@ -99,6 +108,7 @@ func (spdx23Codec) encodeJSON(doc *Document, opts EncodeOptions) ([]byte, error)
 		CreationInfo:      creation,
 		Packages:          packages,
 		Relationships:     relationships,
+		OtherLicenses:     spdxOtherLicenses(extractedLicenses),
 	}
 
 	return marshalJSON(spdxDoc, opts.Pretty)
@@ -109,6 +119,8 @@ func (spdx23Codec) decodeJSON(data []byte) (*Document, error) {
 	if err := json.Unmarshal(data, &spdxDoc); err != nil {
 		return nil, err
 	}
+
+	extractedByRef := spdxExtractedTexts(spdxDoc.OtherLicenses)
 
 	components := make([]Component, 0, len(spdxDoc.Packages))
 	for _, p := range spdxDoc.Packages {
@@ -123,10 +135,11 @@ func (spdx23Codec) decodeJSON(data []byte) (*Document, error) {
 			Scope:          parseSPDXCommentField(p.PackageComment, "scope"),
 			Type:           parseSPDXComponentType(p),
 			PURL:           parseSPDXPURL(p.PackageExternalReferences),
-			Ecosystem:      parseSPDXYcosystem(p.PackageExternalReferences),
+			Ecosystem:      parseSPDXEcosystem(p.PackageExternalReferences),
 			PackageManager: parseSPDXPackageManager(p.PackageExternalReferences),
 			Copyright:      parseSPDXCopyright(p.PackageCopyrightText),
-			Licenses:       parseSPDXLicenses(p.PackageLicenseConcluded, p.PackageLicenseDeclared),
+			Licenses:       parseSPDXLicenses(extractedByRef, p.PackageLicenseConcluded, p.PackageLicenseDeclared),
+			EOL:            spdxCommentEOL(p.PackageComment),
 		})
 	}
 
@@ -329,17 +342,110 @@ func parseSPDXCommentField(comment, field string) string {
 	return ""
 }
 
-func spdxLicenseValue(licenses []License) string {
-	if len(licenses) == 0 {
-		return "NOASSERTION"
+// spdxLicenseValue renders a component's licenses into one SPDX license field,
+// with the extracted-text entries the field's references depend on.
+//
+// SPDX 2.3 has no free-text license field. licenseDeclared must hold a valid
+// expression, NOASSERTION, NONE, or a LicenseRef-* identifier, so a registry
+// value like "see LICENSE file" cannot be written verbatim -- which is what
+// this did, producing a document a strict consumer can reject, and the lite
+// build hands that document to an external tool. Each unrecognized value
+// mints a reference instead, and the original text travels beside it in
+// hasExtractedLicensingInfos. That is what SPDX defines for this case, and
+// unlike NOASSERTION it keeps the information: an ingest can read the text
+// back.
+//
+// Minting is the kit's, not this package's. A reference has to be
+// deterministic, collision-free across components without coordination, and
+// restricted to the characters the idstring grammar allows; spdxkit.MintLicenseRef
+// answers all three by hashing, and hand-rolling a sanitizer here would be a
+// second, worse answer to a question the SDK already settled.
+//
+// SPDX 2.3 holds a single expression per package and has no way to list
+// licenses without relating them, so a component carrying several composes
+// them. AND is the conservative reading -- it overstates obligations rather
+// than understating them -- but it is still more than a source that merely
+// listed licenses actually said. CycloneDX lists them instead; this is the
+// one place the two formats differ.
+//
+// A source that knows the relationship states it in one value ("Apache-2.0 OR
+// MIT"), which arrives here as a single value and passes through untouched.
+func spdxLicenseValue(licenses []License) (string, []spdxkit.ExtractedText) {
+	values := componentLicenseValues(licenses)
+	if len(values) == 0 {
+		return "NOASSERTION", nil
 	}
-	if licenses[0].SPDXExpression != "" {
-		return licenses[0].SPDXExpression
+
+	elements := make([]string, 0, len(values))
+	var extracted []spdxkit.ExtractedText
+	for _, value := range values {
+		if spdxkit.Classify(value) == spdxkit.ClassFreeText {
+			ref := spdxkit.MintLicenseRef(value)
+			elements = append(elements, ref.RefID)
+			extracted = append(extracted, ref)
+			continue
+		}
+		elements = append(elements, value)
 	}
-	if licenses[0].Value != "" {
-		return licenses[0].Value
+	if len(elements) == 1 {
+		return elements[0], extracted
 	}
-	return "NOASSERTION"
+	return spdxkit.Compose(elements), extracted
+}
+
+// spdxOtherLicenses renders the document's extracted-text section: one entry
+// per distinct reference, sorted by identifier so the document is stable.
+//
+// The entries are document-scoped while the references that need them are
+// written per package, so they are collected during package assembly and
+// emitted once here. Two components carrying the same unrecognized text mint
+// the same reference and collapse to one entry, which is the property that
+// makes the reference safe to share.
+func spdxOtherLicenses(extracted []spdxkit.ExtractedText) []*v23.OtherLicense {
+	if len(extracted) == 0 {
+		return nil
+	}
+	byRef := make(map[string]spdxkit.ExtractedText, len(extracted))
+	for _, entry := range extracted {
+		if entry.RefID == "" {
+			continue
+		}
+		byRef[entry.RefID] = entry
+	}
+	refs := make([]string, 0, len(byRef))
+	for ref := range byRef {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+
+	out := make([]*v23.OtherLicense, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, &v23.OtherLicense{
+			LicenseIdentifier: ref,
+			ExtractedText:     byRef[ref].Text,
+		})
+	}
+	return out
+}
+
+// spdxCommentEOL reads the end-of-life claim back out of the package comment.
+//
+// SPDX writes only the flag and the date -- it has no cycle field in this
+// comment -- so only those are read. The flag is what makes the record exist:
+// a date alone says nothing about whether the version is end-of-life, and an
+// unparseable flag drops the record rather than guessing at one. Without this
+// the fields were write-only, and a conversion dropped a claim the document
+// plainly stated.
+func spdxCommentEOL(comment string) *EOL {
+	value := strings.TrimSpace(parseSPDXCommentField(comment, "eol"))
+	if value == "" {
+		return nil
+	}
+	flag, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil
+	}
+	return &EOL{EOL: flag, EOLDate: strings.TrimSpace(parseSPDXCommentField(comment, "eol_date"))}
 }
 
 func spdxCopyrightValue(value string) string {
@@ -398,17 +504,80 @@ func spdxVulnerabilityLocator(vuln Vulnerability) string {
 	return strings.TrimSpace(vuln.ID)
 }
 
-func parseSPDXLicenses(values ...string) []License {
+// spdxExtractedTexts indexes a document's extracted-license section by
+// reference, so ingest can read back the text an exported reference names.
+//
+// An entry whose text does not mint its own identifier is kept under the
+// identifier the document wrote, not repaired. This is a foreign document:
+// the pairing it states is what it means, and re-minting would answer with a
+// reference the document never used.
+func spdxExtractedTexts(others []*v23.OtherLicense) map[string]string {
+	if len(others) == 0 {
+		return nil
+	}
+	byRef := make(map[string]string, len(others))
+	for _, other := range others {
+		if other == nil {
+			continue
+		}
+		ref := strings.TrimSpace(other.LicenseIdentifier)
+		if ref == "" {
+			continue
+		}
+		byRef[ref] = other.ExtractedText
+	}
+	return byRef
+}
+
+// parseSPDXLicenses reads a package's license fields back into the model,
+// resolving any reference to the text the document extracted for it.
+//
+// Export mints a reference for a value SPDX cannot hold verbatim, so ingest
+// has to undo it or a round trip would return "LicenseRef-<hash>" where the
+// source said "see LICENSE file" -- information the reference exists to
+// preserve, lost at the boundary that was supposed to carry it.
+//
+// The expression keeps the reference and the value carries the text: the
+// first is what the document said, the second is what a human means, and
+// collapsing them would make the resolved text look like a license
+// identifier to everything downstream.
+func parseSPDXLicenses(extractedByRef map[string]string, values ...string) []License {
 	for _, value := range values {
 		value = strings.TrimSpace(value)
 		switch value {
 		case "", "NOASSERTION", "NONE":
 			continue
 		default:
-			return []License{{SPDXExpression: value, Value: value}}
+			license := License{SPDXExpression: value, Value: value}
+			if text, ok := resolveSingleLicenseRef(extractedByRef, value); ok {
+				license.Value = text
+			}
+			return []License{license}
 		}
 	}
 	return nil
+}
+
+// resolveSingleLicenseRef returns the extracted text when the expression is
+// exactly one reference and the document supplied its text.
+//
+// Only the atomic case resolves. A compound expression naming a reference
+// among other terms ("MIT AND LicenseRef-abc") has no single text to become:
+// substituting free text into it would produce something that no longer
+// parses, and the reference is already the correct representation there.
+func resolveSingleLicenseRef(extractedByRef map[string]string, expression string) (string, bool) {
+	if len(extractedByRef) == 0 {
+		return "", false
+	}
+	refs := spdxkit.LicenseRefsIn(expression)
+	if len(refs) != 1 || refs[0] != expression {
+		return "", false
+	}
+	text, ok := extractedByRef[expression]
+	if !ok || strings.TrimSpace(text) == "" {
+		return "", false
+	}
+	return text, true
 }
 
 func parseSPDXPURL(refs []*v23.PackageExternalReference) string {
@@ -432,7 +601,7 @@ func parseSPDXPackageManager(refs []*v23.PackageExternalReference) string {
 	return ""
 }
 
-func parseSPDXYcosystem(refs []*v23.PackageExternalReference) string {
+func parseSPDXEcosystem(refs []*v23.PackageExternalReference) string {
 	purl := parseSPDXPURL(refs)
 	if parsed := parsePURL(purl); parsed != nil {
 		return string(sdk.EcosystemForPURLType(parsed.Type))

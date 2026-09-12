@@ -256,3 +256,25 @@ func componentLicenses(licenses []sdk.PackageLicense) []License {
 	}
 	return out
 }
+
+// licenseExpressionValue returns the string a license contributes to a format
+// that holds one value: the SPDX expression when the license carries one, and
+// the raw value otherwise.
+func licenseExpressionValue(license License) string {
+	if expression := strings.TrimSpace(license.SPDXExpression); expression != "" {
+		return expression
+	}
+	return strings.TrimSpace(license.Value)
+}
+
+// componentLicenseValues returns the non-empty license strings a component
+// carries, in order.
+func componentLicenseValues(licenses []License) []string {
+	values := make([]string, 0, len(licenses))
+	for _, license := range licenses {
+		if value := licenseExpressionValue(license); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
