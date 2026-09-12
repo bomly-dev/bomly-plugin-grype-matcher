@@ -5,10 +5,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
-	"github.com/anchore/syft/syft/format/syftjson"
 	"github.com/bomly-dev/bomly-sdk"
 )
+
+// syftSchemaURLMarker is what makes a JSON document a syft-json one: syft
+// stamps every document it writes with a schema.url pointing at its own
+// schema, and every version of that URL contains "anchore/syft".
+//
+// Delegation was checked first and declined for one reason. The authority for
+// this question is syft's own syftjson.NewFormatDecoder().Identify, which this
+// replaces; the SDK owns no SBOM format recognition, and neither cyclonedx-go
+// nor spdx/tools-golang can answer for a third format. But Identify is not a
+// small library to borrow: importing it linked the whole anchore/syft tree --
+// 120 packages of the lite build's closure -- into a build that recognizes
+// this format only to refuse it, and the codec carries no build tag, so the
+// cost was paid unconditionally.
+//
+// What is reproduced here is the entirety of what Identify does: decode
+// schema.url and test it for this substring. TestSyftSniffAgreesWithSyftsOwnIdentify
+// is the guard -- it runs both against a fixture syft's own encoder produces,
+// in the test build where importing syft costs nothing, so a syft release that
+// moved the marker fails here instead of silently ingesting a format Bomly
+// does not support.
+const syftSchemaURLMarker = "anchore/syft"
 
 var (
 	ErrNilDocument       = errors.New("sbom document is nil")
@@ -63,17 +84,20 @@ func DetectJSONTarget(data []byte) (Target, error) {
 		return "", ErrMalformedJSON
 	}
 
-	if id, _ := syftjson.NewFormatDecoder().Identify(bytes.NewReader(trimmed)); id == syftjson.ID {
-		return TargetSyftJSON, nil
-	}
-
 	var sniff struct {
 		SPDXVersion string `json:"spdxVersion"`
 		BOMFormat   string `json:"bomFormat"`
 		SpecVersion string `json:"specVersion"`
+		Schema      struct {
+			URL string `json:"url"`
+		} `json:"schema"`
 	}
 	if err := json.Unmarshal(trimmed, &sniff); err != nil {
 		return "", ErrMalformedJSON
+	}
+
+	if strings.Contains(sniff.Schema.URL, syftSchemaURLMarker) {
+		return TargetSyftJSON, nil
 	}
 
 	switch {

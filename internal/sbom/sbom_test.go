@@ -898,3 +898,34 @@ func TestFromDepGraph_ComponentNamesAreEcosystemNative(t *testing.T) {
 		t.Error("scoped npm component emitted with a colon-joined name")
 	}
 }
+
+// The syft-json sniff in DetectJSONTarget reproduces what
+// syftjson.NewFormatDecoder().Identify does, so that the production build does
+// not link the anchore/syft tree to recognize a format it then refuses. This
+// runs both against a document syft's own encoder wrote: the test build may
+// import syft freely, so the borrowed rule stays pinned to its source. A syft
+// release that moved the schema marker fails here rather than turning a syft
+// document into a generic unsupported-format error.
+func TestSyftSniffAgreesWithSyftsOwnIdentify(t *testing.T) {
+	fixture := mustSyftJSONFixture(t)
+
+	id, version := syftjson.NewFormatDecoder().Identify(bytes.NewReader(fixture))
+	if id != syftjson.ID || version == "" {
+		t.Fatalf("syft did not identify its own output: id=%q version=%q", id, version)
+	}
+
+	target, err := DetectJSONTarget(fixture)
+	if err != nil || target != TargetSyftJSON {
+		t.Fatalf("DetectJSONTarget(syft output) = (%q, %v), want the syft target", target, err)
+	}
+
+	// And the agreement has to hold in the negative direction too: what syft
+	// declines, the sniff must decline.
+	notSyft := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","schema":{"url":"https://example.com/schema.json"}}`)
+	if id, _ := syftjson.NewFormatDecoder().Identify(bytes.NewReader(notSyft)); id == syftjson.ID {
+		t.Fatalf("syft identified a non-syft document")
+	}
+	if target, err := DetectJSONTarget(notSyft); err != nil || target != TargetCycloneDX16JSON {
+		t.Fatalf("DetectJSONTarget(non-syft) = (%q, %v), want the cyclonedx target", target, err)
+	}
+}
