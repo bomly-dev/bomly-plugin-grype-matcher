@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bomly-dev/bomly-plugin-grype-matcher/internal/sbom"
 	"github.com/bomly-dev/bomly-sdk"
 	logkit "github.com/bomly-dev/bomly-sdk/logkit"
 	matchers "github.com/bomly-dev/bomly-sdk/matcherkit"
+	"github.com/bomly-dev/bomly-sdk/sbom"
 	"github.com/bomly-dev/bomly-sdk/system"
 	"go.uber.org/zap"
 )
