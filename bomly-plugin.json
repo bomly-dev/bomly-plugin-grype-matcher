@@ -2,7 +2,7 @@
   "schemaVersion": "bomly.plugin.package.v1",
   "id": "grype",
   "name": "Grype",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "kind": "matcher",
   "runtime": "hashicorp-grpc",
   "pluginApiVersion": "bomly.plugin.v1",
