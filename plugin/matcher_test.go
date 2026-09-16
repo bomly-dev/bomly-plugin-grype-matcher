@@ -15,8 +15,10 @@ import (
 	grypematch "github.com/anchore/grype/grype/match"
 	grypepkg "github.com/anchore/grype/grype/pkg"
 	grypevuln "github.com/anchore/grype/grype/vulnerability"
-	"github.com/bomly-dev/bomly-sdk"
 	"github.com/bomly-dev/bomly-sdk/testkit"
+
+	"github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 func TestDescriptor_Name(t *testing.T) {
@@ -30,7 +32,7 @@ func TestDescriptor_Name(t *testing.T) {
 	if len(d.SupportedEcosystems) == 0 {
 		t.Fatal("SupportedEcosystems should list the ecosystems builtin mode can match")
 	}
-	found := slices.Contains(d.SupportedEcosystems, sdk.EcosystemNPM)
+	found := slices.Contains(d.SupportedEcosystems, model.EcosystemNPM)
 	if !found {
 		t.Errorf("SupportedEcosystems = %v, expected it to include npm", d.SupportedEcosystems)
 	}
@@ -38,8 +40,8 @@ func TestDescriptor_Name(t *testing.T) {
 
 func TestMatch_NilGraph_ReturnsEmpty(t *testing.T) {
 	a := Matcher{}
-	registry := sdk.NewPackageRegistry()
-	result, err := a.Match(context.Background(), sdk.MatchRequest{Graph: nil, Registry: registry})
+	registry := model.NewPackageRegistry()
+	result, err := a.Match(context.Background(), sdkplugin.MatchRequest{Graph: nil, Registry: registry})
 	if err != nil {
 		t.Fatalf("Match with nil graph: %v", err)
 	}
@@ -50,7 +52,7 @@ func TestMatch_NilGraph_ReturnsEmpty(t *testing.T) {
 
 func TestReady_TrueWhenDBDirAbsent(t *testing.T) {
 	a := Matcher{DBDir: filepath.Join(t.TempDir(), "nonexistent-db")}
-	if err := a.Ready(context.Background(), sdk.MatchRequest{}); err != nil {
+	if err := a.Ready(context.Background(), sdkplugin.MatchRequest{}); err != nil {
 		t.Errorf("Ready() = %v, want nil because the bundled matcher can download the DB", err)
 	}
 }
@@ -76,13 +78,13 @@ func TestMatch_DBNotPresent_AttemptsDownloadAndReturnsEmpty(t *testing.T) {
 	}
 
 	dep := testkit.MustDependencyNode(t, "pkg:npm/lodash@4.17.15")
-	g := sdk.New()
+	g := model.New()
 	if err := g.AddNode(dep); err != nil {
 		t.Fatalf("AddNode: %v", err)
 	}
-	registry := sdk.NewPackageRegistry()
+	registry := model.NewPackageRegistry()
 
-	result, err := a.Match(context.Background(), sdk.MatchRequest{Graph: g, Registry: registry})
+	result, err := a.Match(context.Background(), sdkplugin.MatchRequest{Graph: g, Registry: registry})
 	if err == nil {
 		t.Fatal("expected non-nil error when DB download fails")
 	}
@@ -108,7 +110,7 @@ func TestDBDir_DefaultUsesOSCacheDir(t *testing.T) {
 }
 
 func TestGraphPkgToGrypePkg_FieldMapping(t *testing.T) {
-	p := &sdk.Package{Coordinates: sdk.Coordinates{Name: "lodash",
+	p := &model.Package{Coordinates: model.Coordinates{Name: "lodash",
 		Version:   "4.17.15",
 		PURL:      "pkg:npm/lodash@4.17.15",
 		Ecosystem: "npm"},
@@ -134,22 +136,22 @@ func TestGraphPkgToGrypePkg_FieldMapping(t *testing.T) {
 func TestGraphPkgToGrypePkg_EcosystemNativeName(t *testing.T) {
 	cases := []struct {
 		name string
-		pkg  sdk.Coordinates
+		pkg  model.Coordinates
 		want string
 	}{
 		{
 			name: "npm scoped",
-			pkg:  sdk.Coordinates{Org: "tailwindcss", Name: "postcss", Version: "4.3.3", PURL: "pkg:npm/%40tailwindcss/postcss@4.3.3", Ecosystem: sdk.EcosystemNPM},
+			pkg:  model.Coordinates{Org: "tailwindcss", Name: "postcss", Version: "4.3.3", PURL: "pkg:npm/%40tailwindcss/postcss@4.3.3", Ecosystem: model.EcosystemNPM},
 			want: "@tailwindcss/postcss",
 		},
 		{
 			name: "npm unscoped",
-			pkg:  sdk.Coordinates{Name: "postcss", Version: "8.5.16", PURL: "pkg:npm/postcss@8.5.16", Ecosystem: sdk.EcosystemNPM},
+			pkg:  model.Coordinates{Name: "postcss", Version: "8.5.16", PURL: "pkg:npm/postcss@8.5.16", Ecosystem: model.EcosystemNPM},
 			want: "postcss",
 		},
 		{
 			name: "go module path",
-			pkg:  sdk.Coordinates{Org: "github.com/spf13", Name: "cobra", Version: "v1.8.0", PURL: "pkg:golang/github.com/spf13/cobra@v1.8.0", Ecosystem: sdk.EcosystemGo},
+			pkg:  model.Coordinates{Org: "github.com/spf13", Name: "cobra", Version: "v1.8.0", PURL: "pkg:golang/github.com/spf13/cobra@v1.8.0", Ecosystem: model.EcosystemGo},
 			want: "github.com/spf13/cobra",
 		},
 		// OS packages carry the distro in Org. Grype's distro-namespace
@@ -157,19 +159,19 @@ func TestGraphPkgToGrypePkg_EcosystemNativeName(t *testing.T) {
 		// advisory — see the distro/upstream plumbing in purl_builtin.go.
 		{
 			name: "apk keeps bare name",
-			pkg:  sdk.Coordinates{Org: "alpine", Name: "libcrypto3", Version: "3.0.8-r0", PURL: "pkg:apk/alpine/libcrypto3@3.0.8-r0?arch=x86_64&distro=alpine-3.17.2&upstream=openssl", Ecosystem: sdk.EcosystemAPK},
+			pkg:  model.Coordinates{Org: "alpine", Name: "libcrypto3", Version: "3.0.8-r0", PURL: "pkg:apk/alpine/libcrypto3@3.0.8-r0?arch=x86_64&distro=alpine-3.17.2&upstream=openssl", Ecosystem: model.EcosystemAPK},
 			want: "libcrypto3",
 		},
 		{
 			name: "dpkg keeps bare name",
-			pkg:  sdk.Coordinates{Org: "debian", Name: "libc6", Version: "2.31-13", PURL: "pkg:deb/debian/libc6@2.31-13?arch=amd64&distro=debian-11", Ecosystem: sdk.EcosystemDPKG},
+			pkg:  model.Coordinates{Org: "debian", Name: "libc6", Version: "2.31-13", PURL: "pkg:deb/debian/libc6@2.31-13?arch=amd64&distro=debian-11", Ecosystem: model.EcosystemDPKG},
 			want: "libc6",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := graphPkgToGrypePkg(&sdk.Package{Coordinates: tc.pkg}).Name; got != tc.want {
+			if got := graphPkgToGrypePkg(&model.Package{Coordinates: tc.pkg}).Name; got != tc.want {
 				t.Errorf("Name = %q, want %q", got, tc.want)
 			}
 		})
@@ -180,9 +182,9 @@ func TestGraphPkgToGrypePkg_EcosystemNativeName(t *testing.T) {
 // matchers hand to the DB search, so this asserts the scoped package is looked
 // up under its own name only and never under the unscoped "postcss".
 func TestGrypeSearchNamesKeepNPMScope(t *testing.T) {
-	scoped := graphPkgToGrypePkg(&sdk.Package{Coordinates: sdk.Coordinates{
+	scoped := graphPkgToGrypePkg(&model.Package{Coordinates: model.Coordinates{
 		Org: "tailwindcss", Name: "postcss", Version: "4.3.3",
-		PURL: "pkg:npm/%40tailwindcss/postcss@4.3.3", Ecosystem: sdk.EcosystemNPM,
+		PURL: "pkg:npm/%40tailwindcss/postcss@4.3.3", Ecosystem: model.EcosystemNPM,
 	}})
 
 	names := grypeName.PackageNames(scoped)
@@ -200,10 +202,10 @@ func TestGrypeSearchNamesKeepNPMScope(t *testing.T) {
 // the same time: an OS package must reach Grype under its bare name *and* keep
 // the distro its advisories are namespaced by.
 func TestGraphPkgToGrypePkg_OSPackageKeepsBareNameAndDistro(t *testing.T) {
-	gp := graphPkgToGrypePkg(&sdk.Package{Coordinates: sdk.Coordinates{
+	gp := graphPkgToGrypePkg(&model.Package{Coordinates: model.Coordinates{
 		Org: "alpine", Name: "libcrypto3", Version: "3.0.8-r0",
 		PURL:      "pkg:apk/alpine/libcrypto3@3.0.8-r0?arch=x86_64&distro=alpine-3.17.2&upstream=openssl",
-		Ecosystem: sdk.EcosystemAPK,
+		Ecosystem: model.EcosystemAPK,
 	}})
 
 	if gp.Name != "libcrypto3" {

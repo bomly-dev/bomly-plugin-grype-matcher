@@ -6,26 +6,27 @@ import (
 	"testing"
 
 	syftPkg "github.com/anchore/syft/syft/pkg"
-	"github.com/bomly-dev/bomly-sdk"
+
+	"github.com/bomly-dev/bomly-sdk/model"
 )
 
 // The declared ecosystem list is what the generated docs and `bomly plugins
 // list` show, so it has to stay in step with what ecosystemToSyftType can
 // actually map. This fails if a case is added to one without the other.
 func TestSupportedEcosystemsMatchSyftTypeMapping(t *testing.T) {
-	all := []sdk.Ecosystem{
-		sdk.EcosystemNPM, sdk.EcosystemMaven, sdk.EcosystemGo, sdk.EcosystemPython,
-		sdk.EcosystemALPM, sdk.EcosystemAPK, sdk.EcosystemCPP, sdk.EcosystemConda,
-		sdk.EcosystemDart, sdk.EcosystemDPKG, sdk.EcosystemElixir, sdk.EcosystemErlang,
-		sdk.EcosystemGitHub, sdk.EcosystemHaskell, sdk.EcosystemHomebrew, sdk.EcosystemLua,
-		sdk.EcosystemDotNet, sdk.EcosystemNix, sdk.EcosystemOCaml, sdk.EcosystemPHP,
-		sdk.EcosystemPortage, sdk.EcosystemProlog, sdk.EcosystemR, sdk.EcosystemRPM,
-		sdk.EcosystemRuby, sdk.EcosystemRust, sdk.EcosystemScala, sdk.EcosystemSBOM,
-		sdk.EcosystemSnap, sdk.EcosystemSwift, sdk.EcosystemTerraform,
-		sdk.EcosystemWordPress, sdk.EcosystemOther,
+	all := []model.Ecosystem{
+		model.EcosystemNPM, model.EcosystemMaven, model.EcosystemGo, model.EcosystemPython,
+		model.EcosystemALPM, model.EcosystemAPK, model.EcosystemCPP, model.EcosystemConda,
+		model.EcosystemDart, model.EcosystemDPKG, model.EcosystemElixir, model.EcosystemErlang,
+		model.EcosystemGitHub, model.EcosystemHaskell, model.EcosystemHomebrew, model.EcosystemLua,
+		model.EcosystemDotNet, model.EcosystemNix, model.EcosystemOCaml, model.EcosystemPHP,
+		model.EcosystemPortage, model.EcosystemProlog, model.EcosystemR, model.EcosystemRPM,
+		model.EcosystemRuby, model.EcosystemRust, model.EcosystemScala, model.EcosystemSBOM,
+		model.EcosystemSnap, model.EcosystemSwift, model.EcosystemTerraform,
+		model.EcosystemWordPress, model.EcosystemOther,
 	}
 
-	declared := make(map[sdk.Ecosystem]bool, len(supportedEcosystems))
+	declared := make(map[model.Ecosystem]bool, len(supportedEcosystems))
 	for _, eco := range supportedEcosystems {
 		declared[eco] = true
 	}

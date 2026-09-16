@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bomly-dev/bomly-sdk"
 	"go.uber.org/zap"
+
+	"github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 // matcherName labels this matcher in stats and descriptors. It equals Name,
@@ -26,7 +28,7 @@ type Matcher struct {
 	DistConfigOverride any
 }
 
-func appendOrMergeVulnerability(existing []sdk.Vulnerability, entry sdk.Vulnerability) []sdk.Vulnerability {
+func appendOrMergeVulnerability(existing []model.Vulnerability, entry model.Vulnerability) []model.Vulnerability {
 	for idx, vulnerability := range existing {
 		if vulnerability.Source == entry.Source && vulnerability.ID == entry.ID {
 			existing[idx] = mergePackageVulnerability(vulnerability, entry)
@@ -37,8 +39,8 @@ func appendOrMergeVulnerability(existing []sdk.Vulnerability, entry sdk.Vulnerab
 }
 
 // Descriptor returns the registration metadata for the Grype matcher.
-func (a Matcher) Descriptor() sdk.MatcherDescriptor {
-	return sdk.MatcherDescriptor{
+func (a Matcher) Descriptor() sdkplugin.MatcherDescriptor {
+	return sdkplugin.MatcherDescriptor{
 		Name:        matcherName,
 		DisplayName: displayName,
 		// The package-updates delta protocol is deliberately NOT adopted.
@@ -65,7 +67,7 @@ func (a Matcher) dbExists() bool {
 	return err == nil && info.IsDir()
 }
 
-func (a Matcher) Applicable(_ context.Context, _ sdk.MatchRequest) (bool, error) {
+func (a Matcher) Applicable(_ context.Context, _ sdkplugin.MatchRequest) (bool, error) {
 	return true, nil
 }
 
@@ -87,11 +89,11 @@ func (a Matcher) logger() *zap.Logger {
 	return zap.NewNop()
 }
 
-func grypeMatcherStats(matchedPackages, unmatchedPackages, vulnerabilities int) sdk.MatcherStats {
+func grypeMatcherStats(matchedPackages, unmatchedPackages, vulnerabilities int) sdkplugin.MatcherStats {
 	if unmatchedPackages < 0 {
 		unmatchedPackages = 0
 	}
-	return sdk.MatcherStats{
+	return sdkplugin.MatcherStats{
 		Name:              matcherName,
 		DisplayName:       displayName,
 		MatchedPackages:   matchedPackages,

@@ -7,7 +7,8 @@ import (
 
 	grypepkg "github.com/anchore/grype/grype/pkg"
 	syftPkg "github.com/anchore/syft/syft/pkg"
-	"github.com/bomly-dev/bomly-sdk"
+
+	"github.com/bomly-dev/bomly-sdk/model"
 )
 
 func TestDistroFromPURL(t *testing.T) {
@@ -156,10 +157,10 @@ func TestUpstreamsFromPURL(t *testing.T) {
 // bails out without one, which is why container OS packages used to come back
 // clean instead of vulnerable (issue #316).
 func TestGraphPkgToGrypePkgCarriesDistroAndUpstreams(t *testing.T) {
-	pkg := graphPkgToGrypePkg(&sdk.Package{
-		Coordinates: sdk.Coordinates{
+	pkg := graphPkgToGrypePkg(&model.Package{
+		Coordinates: model.Coordinates{
 			PURL:      "pkg:apk/alpine/libcrypto3@3.0.8-r0?arch=x86_64&distro=alpine-3.17.2&upstream=openssl",
-			Ecosystem: sdk.EcosystemAPK,
+			Ecosystem: model.EcosystemAPK,
 			Name:      "libcrypto3",
 			Version:   "3.0.8-r0",
 		},
@@ -184,10 +185,10 @@ func TestGraphPkgToGrypePkgCarriesDistroAndUpstreams(t *testing.T) {
 
 // Language packages must be unaffected: no distro, no upstreams.
 func TestGraphPkgToGrypePkgLanguagePackageUnchanged(t *testing.T) {
-	pkg := graphPkgToGrypePkg(&sdk.Package{
-		Coordinates: sdk.Coordinates{
+	pkg := graphPkgToGrypePkg(&model.Package{
+		Coordinates: model.Coordinates{
 			PURL:      "pkg:npm/lodash@4.17.20",
-			Ecosystem: sdk.EcosystemNPM,
+			Ecosystem: model.EcosystemNPM,
 			Name:      "lodash",
 			Version:   "4.17.20",
 		},

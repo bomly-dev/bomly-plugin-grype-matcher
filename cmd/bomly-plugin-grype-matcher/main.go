@@ -4,9 +4,9 @@
 package main
 
 import (
-	sdk "github.com/bomly-dev/bomly-sdk"
-
 	"github.com/bomly-dev/bomly-plugin-grype-matcher/plugin"
+
+	"github.com/bomly-dev/bomly-sdk/runtime"
 )
 
-func main() { sdk.ServeModule(plugin.Module()) }
+func main() { runtime.ServeModule(plugin.Module()) }

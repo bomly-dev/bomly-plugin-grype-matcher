@@ -5,12 +5,13 @@ package plugin
 import (
 	"testing"
 
-	"github.com/bomly-dev/bomly-sdk"
 	"github.com/bomly-dev/bomly-sdk/testkit"
+
+	"github.com/bomly-dev/bomly-sdk/model"
 )
 
 func TestParseGrypeJSONOutputCarriesRichFields(t *testing.T) {
-	registry := sdk.NewPackageRegistry()
+	registry := model.NewPackageRegistry()
 	const purl = "pkg:npm/lodash@4.17.15"
 	registry.Ensure(purl)
 
@@ -78,7 +79,7 @@ func TestParseGrypeJSONOutputCarriesRichFields(t *testing.T) {
 }
 
 func TestParseGrypeJSONOutputSkipsFirstPartyPURLs(t *testing.T) {
-	registry := sdk.NewPackageRegistry()
+	registry := model.NewPackageRegistry()
 	const firstParty = "pkg:npm/my-app@1.0.0"
 	const thirdParty = "pkg:npm/lodash@4.17.15"
 
@@ -106,14 +107,14 @@ func TestParseGrypeJSONOutputSkipsFirstPartyPURLs(t *testing.T) {
 }
 
 func TestFirstPartyPURLs(t *testing.T) {
-	graph := sdk.New()
+	graph := model.New()
 	// The project's own artifact is a module node now, not a dependency
 	// carrying FirstParty -- ADR-0041 made ownership the node kind. That is
 	// exactly why this test matters: DependencyNodes() never yields a module,
 	// so a skip set built only from dependencies would silently stop covering
 	// the project's own packages.
-	app := testkit.MustModuleNode(t, "package.json", sdk.Coordinates{
-		Name: "my-app", Version: "1.0.0", Ecosystem: sdk.EcosystemNPM,
+	app := testkit.MustModuleNode(t, "package.json", model.Coordinates{
+		Name: "my-app", Version: "1.0.0", Ecosystem: model.EcosystemNPM,
 		PURL: "pkg:npm/my-app@1.0.0",
 	})
 	dep := testkit.MustDependencyNode(t, "pkg:npm/lodash@4.17.15")

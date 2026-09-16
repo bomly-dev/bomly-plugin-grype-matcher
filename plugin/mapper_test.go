@@ -3,7 +3,7 @@ package plugin
 import (
 	"testing"
 
-	"github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/model"
 )
 
 func TestMapGrypeAdvisoryCarriesRichFields(t *testing.T) {
@@ -15,16 +15,16 @@ func TestMapGrypeAdvisoryCarriesRichFields(t *testing.T) {
 		SeveritySource:       "nvd",
 		Description:          "important vuln",
 		URLs:                 []string{"https://example.test/advisory"},
-		CVSS:                 []sdk.CVSSScore{{Vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", Score: 9.8, Version: "3.1", Source: "nvd"}},
+		CVSS:                 []model.CVSSScore{{Vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", Score: 9.8, Version: "3.1", Source: "nvd"}},
 		FixedVersions:        []string{"1.2.3", "1.3.0"},
 		FixState:             "fixed",
-		FixAvailable:         []sdk.FixAvailable{{Version: "1.2.3", Date: "2024-01-02", Kind: "first-observed"}},
+		FixAvailable:         []model.FixAvailable{{Version: "1.2.3", Date: "2024-01-02", Kind: "first-observed"}},
 		AffectedVersionRange: "< 1.2.3",
-		References:           []sdk.Reference{{URL: "https://patch.test/1", Type: "GHSA-xxxx"}},
+		References:           []model.Reference{{URL: "https://patch.test/1", Type: "GHSA-xxxx"}},
 		Aliases:              []string{"GHSA-xxxx"},
-		KnownExploited:       []sdk.KnownExploited{{CVE: "CVE-2024-1234", KnownRansomwareCampaignUse: "Known"}},
-		EPSS:                 []sdk.EPSSScore{{CVE: "CVE-2024-1234", EPSS: 0.42, Percentile: 0.97, Date: "2024-05-01"}},
-		CWEs:                 []sdk.CWE{{CVE: "CVE-2024-1234", ID: "CWE-79", Source: "nvd", Type: "primary"}},
+		KnownExploited:       []model.KnownExploited{{CVE: "CVE-2024-1234", KnownRansomwareCampaignUse: "Known"}},
+		EPSS:                 []model.EPSSScore{{CVE: "CVE-2024-1234", EPSS: 0.42, Percentile: 0.97, Date: "2024-05-01"}},
+		CWEs:                 []model.CWE{{CVE: "CVE-2024-1234", ID: "CWE-79", Source: "nvd", Type: "primary"}},
 		RiskScore:            88.2,
 		CPEs:                 []string{"cpe:2.3:a:example:pkg:1.0:*:*:*:*:*:*:*"},
 	})
@@ -71,22 +71,22 @@ func TestMapGrypeAdvisoryPrefersSuggestedFixedIn(t *testing.T) {
 }
 
 func TestAppendOrMergeVulnerabilityUnionsFields(t *testing.T) {
-	existing := []sdk.Vulnerability{{
+	existing := []model.Vulnerability{{
 		ID:      "CVE-1",
 		Source:  matcherName,
 		FixedIn: "1.0.0",
 		Aliases: []string{"GHSA-1"},
-		CVSS:    []sdk.CVSSScore{{Vector: "v1", Source: "nvd"}},
+		CVSS:    []model.CVSSScore{{Vector: "v1", Source: "nvd"}},
 		Reasons: []string{"old"},
 	}}
-	incoming := sdk.Vulnerability{
+	incoming := model.Vulnerability{
 		ID:             "CVE-1",
 		Source:         matcherName,
 		FixState:       "fixed",
 		FixedVersions:  []string{"1.0.0", "1.1.0"},
 		Aliases:        []string{"GHSA-1", "ALIAS-2"},
-		CVSS:           []sdk.CVSSScore{{Vector: "v2", Source: "vendor"}},
-		KnownExploited: []sdk.KnownExploited{{CVE: "CVE-1"}},
+		CVSS:           []model.CVSSScore{{Vector: "v2", Source: "vendor"}},
+		KnownExploited: []model.KnownExploited{{CVE: "CVE-1"}},
 		Reasons:        []string{"old", "new"},
 	}
 	got := appendOrMergeVulnerability(existing, incoming)

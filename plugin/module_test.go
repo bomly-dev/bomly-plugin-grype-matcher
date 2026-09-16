@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	sdk "github.com/bomly-dev/bomly-sdk"
 	"github.com/bomly-dev/bomly-sdk/conformance"
 	"go.uber.org/zap"
+
+	"github.com/bomly-dev/bomly-sdk/httpkit"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 // testHost is a minimal HostContext for unit tests.
@@ -18,9 +20,9 @@ type testHost struct {
 }
 
 func (h testHost) Logger() *zap.Logger                 { return zap.NewNop() }
-func (h testHost) HTTPClient() *sdk.HTTPClientProvider { return nil }
-func (h testHost) Runtime() sdk.RuntimeInfo {
-	return sdk.RuntimeInfo{Execution: sdk.ExecutionEmbedded}
+func (h testHost) HTTPClient() *httpkit.ClientProvider { return nil }
+func (h testHost) Runtime() sdkplugin.RuntimeInfo {
+	return sdkplugin.RuntimeInfo{Execution: sdkplugin.ExecutionEmbedded}
 }
 
 func (h testHost) DecodeConfig(v any) error {
@@ -62,7 +64,7 @@ func TestModuleConstructsMatcher(t *testing.T) {
 // cannot reproduce (see the Descriptor comment in matcher.go).
 func TestDescriptorDoesNotAdvertisePackageUpdates(t *testing.T) {
 	for _, capability := range (Matcher{}).Descriptor().Capabilities {
-		if capability == sdk.CapabilityPackageUpdates {
+		if capability == sdkplugin.CapabilityPackageUpdates {
 			t.Fatal("grype matcher must not advertise the package-updates capability; its vulnerability merge is not MergeFrom-expressible")
 		}
 	}
