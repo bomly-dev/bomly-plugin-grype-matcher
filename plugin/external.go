@@ -11,16 +11,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bomly-dev/bomly-sdk"
 	logkit "github.com/bomly-dev/bomly-sdk/logkit"
 	matchers "github.com/bomly-dev/bomly-sdk/matcherkit"
 	"github.com/bomly-dev/bomly-sdk/sbom"
 	"github.com/bomly-dev/bomly-sdk/system"
 	"go.uber.org/zap"
+
+	"github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 // Ready reports whether the external grype binary is available.
-func (a Matcher) Ready(context.Context, sdk.MatchRequest) error {
+func (a Matcher) Ready(context.Context, sdkplugin.MatchRequest) error {
 	if _, err := exec.LookPath("grype"); err != nil {
 		return fmt.Errorf("grype executable not found on PATH: %w", err)
 	}
@@ -28,16 +30,16 @@ func (a Matcher) Ready(context.Context, sdk.MatchRequest) error {
 }
 
 // Match attaches Grype vulnerability matches by shelling out to the grype CLI binary.
-func (a Matcher) Match(_ context.Context, req sdk.MatchRequest) (sdk.MatchResult, error) {
+func (a Matcher) Match(_ context.Context, req sdkplugin.MatchRequest) (sdkplugin.MatchResult, error) {
 	started := time.Now()
 	if req.Graph == nil {
-		return sdk.MatchResult{MatcherStats: grypeMatcherStats(0, 0, 0)}, nil
+		return sdkplugin.MatchResult{MatcherStats: grypeMatcherStats(0, 0, 0)}, nil
 	}
 
 	logger := a.logger()
 
 	if req.Graph == nil || req.Registry == nil {
-		return sdk.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, nil
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, nil
 	}
 
 	// Seed the registry so SPDX serialization and match correlation share PURLs.
@@ -46,7 +48,7 @@ func (a Matcher) Match(_ context.Context, req sdk.MatchRequest) (sdk.MatchResult
 	// Serialize graph as SPDX JSON to feed to grype stdin.
 	spdxBytes, err := sbom.MarshalDepGraphJSON(req.Graph, sbom.TargetSPDX23JSON, sbom.BuildOptions{}, sbom.EncodeOptions{})
 	if err != nil {
-		return sdk.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype: serialize sbom: %w", err)
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype: serialize sbom: %w", err)
 	}
 
 	args := []string{"-o", "json"}
@@ -60,16 +62,16 @@ func (a Matcher) Match(_ context.Context, req sdk.MatchRequest) (sdk.MatchResult
 	logger.Debug("running external grype matcher", logkit.CommandFields("grype", args, cmd.Dir)...)
 	if err := cmd.Run(); err != nil {
 		logger.Warn("grype CLI failed", zap.Error(err), zap.Int64("stderr_bytes", commandStderr.ByteCount()))
-		return sdk.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype match failed: %w", err)
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype match failed: %w", err)
 	}
 
 	matchedPackages, vulnerabilities, err := parseGrypeJSONOutput(stdout.Bytes(), req.Registry, firstPartyPURLs(req.Graph))
 	if err != nil {
-		return sdk.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype: parse output: %w", err)
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype: parse output: %w", err)
 	}
 
 	logger.Info(fmt.Sprintf("External grype enrichment completed in %s", formatDuration(time.Since(started))))
-	return sdk.MatchResult{
+	return sdkplugin.MatchResult{
 		Registry:     req.Registry,
 		MatcherStats: grypeMatcherStats(matchedPackages, registryPackageCount(req.Registry)-matchedPackages, vulnerabilities),
 	}, nil
@@ -184,7 +186,7 @@ type grypeJSONArtifact struct {
 // external matches (sdk.NodeIsEnrichable is false). The SBOM handed to grype
 // intentionally keeps first-party components — the transform is shared with
 // user-facing SBOM output — so their matches are dropped on the way back in.
-func firstPartyPURLs(g *sdk.Graph) map[string]struct{} {
+func firstPartyPURLs(g *model.Graph) map[string]struct{} {
 	if g == nil {
 		return nil
 	}
@@ -226,7 +228,7 @@ func firstPartyPURLs(g *sdk.Graph) map[string]struct{} {
 	return skip
 }
 
-func parseGrypeJSONOutput(data []byte, registry *sdk.PackageRegistry, skipPURLs map[string]struct{}) (int, int, error) {
+func parseGrypeJSONOutput(data []byte, registry *model.PackageRegistry, skipPURLs map[string]struct{}) (int, int, error) {
 	var out grypeJSONOutput
 	if err := json.Unmarshal(data, &out); err != nil {
 		return 0, 0, fmt.Errorf("decode grype json: %w", err)
@@ -257,14 +259,14 @@ func parseGrypeJSONOutput(data []byte, registry *sdk.PackageRegistry, skipPURLs 
 	return len(seen), vulnerabilities, nil
 }
 
-func registryPackageCount(registry *sdk.PackageRegistry) int {
+func registryPackageCount(registry *model.PackageRegistry) int {
 	if registry == nil {
 		return 0
 	}
 	return len(registry.All())
 }
 
-func mapGrypeJSONMatch(m grypeJSONMatch) sdk.Vulnerability {
+func mapGrypeJSONMatch(m grypeJSONMatch) model.Vulnerability {
 	advisory := grypeAdvisory{
 		ID:                   m.Vulnerability.ID,
 		Namespace:            m.Vulnerability.Namespace,
@@ -276,7 +278,7 @@ func mapGrypeJSONMatch(m grypeJSONMatch) sdk.Vulnerability {
 		CVSS:                 jsonCVSS(m.Vulnerability.CVSS),
 		FixedVersions:        append([]string(nil), m.Vulnerability.Fix.Versions...),
 		FixedIn:              suggestedFixedVersion(m.MatchDetails),
-		FixState:             sdk.FixState(m.Vulnerability.Fix.State),
+		FixState:             model.FixState(m.Vulnerability.Fix.State),
 		FixAvailable:         jsonFixAvailable(m.Vulnerability.Fix.Available),
 		AffectedVersionRange: foundConstraint(m.MatchDetails),
 		References:           jsonReferences(m.Vulnerability.Advisories),
@@ -314,31 +316,31 @@ func foundConstraint(details []grypeJSONDetail) string {
 	return ""
 }
 
-func jsonCVSS(values []grypeJSONCVSS) []sdk.CVSSScore {
-	out := make([]sdk.CVSSScore, 0, len(values))
+func jsonCVSS(values []grypeJSONCVSS) []model.CVSSScore {
+	out := make([]model.CVSSScore, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.CVSSScore{
+		out = append(out, model.CVSSScore{
 			Vector:  value.Vector,
 			Score:   value.Metrics.BaseScore,
-			Version: sdk.SeverityType(value.Version),
+			Version: model.SeverityType(value.Version),
 			Source:  value.Source,
 		})
 	}
 	return out
 }
 
-func jsonFixAvailable(values []grypeJSONFixAvailable) []sdk.FixAvailable {
-	out := make([]sdk.FixAvailable, 0, len(values))
+func jsonFixAvailable(values []grypeJSONFixAvailable) []model.FixAvailable {
+	out := make([]model.FixAvailable, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.FixAvailable{Version: value.Version, Date: value.Date, Kind: sdk.FixAvailableKind(value.Kind)})
+		out = append(out, model.FixAvailable{Version: value.Version, Date: value.Date, Kind: model.FixAvailableKind(value.Kind)})
 	}
 	return out
 }
 
-func jsonReferences(values []grypeJSONAdvisory) []sdk.Reference {
-	out := make([]sdk.Reference, 0, len(values))
+func jsonReferences(values []grypeJSONAdvisory) []model.Reference {
+	out := make([]model.Reference, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.Reference{URL: value.Link, Type: sdk.ReferenceType(firstNonEmpty(value.ID, string(sdk.ReferenceTypeAdvisory)))})
+		out = append(out, model.Reference{URL: value.Link, Type: model.ReferenceType(firstNonEmpty(value.ID, string(model.ReferenceTypeAdvisory)))})
 	}
 	return out
 }
@@ -351,10 +353,10 @@ func jsonAliases(values []grypeJSONVulnMeta) []string {
 	return out
 }
 
-func jsonKnownExploited(values []grypeJSONKnownExploit) []sdk.KnownExploited {
-	out := make([]sdk.KnownExploited, 0, len(values))
+func jsonKnownExploited(values []grypeJSONKnownExploit) []model.KnownExploited {
+	out := make([]model.KnownExploited, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.KnownExploited{
+		out = append(out, model.KnownExploited{
 			CVE:                        value.CVE,
 			VendorProject:              value.VendorProject,
 			Product:                    value.Product,
@@ -370,18 +372,18 @@ func jsonKnownExploited(values []grypeJSONKnownExploit) []sdk.KnownExploited {
 	return out
 }
 
-func jsonEPSS(values []grypeJSONEPSS) []sdk.EPSSScore {
-	out := make([]sdk.EPSSScore, 0, len(values))
+func jsonEPSS(values []grypeJSONEPSS) []model.EPSSScore {
+	out := make([]model.EPSSScore, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.EPSSScore{CVE: value.CVE, EPSS: value.EPSS, Percentile: value.Percentile, Date: value.Date})
+		out = append(out, model.EPSSScore{CVE: value.CVE, EPSS: value.EPSS, Percentile: value.Percentile, Date: value.Date})
 	}
 	return out
 }
 
-func jsonCWEs(values []grypeJSONCWE) []sdk.CWE {
-	out := make([]sdk.CWE, 0, len(values))
+func jsonCWEs(values []grypeJSONCWE) []model.CWE {
+	out := make([]model.CWE, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.CWE{CVE: value.CVE, ID: value.CWE, Source: value.Source, Type: value.Type})
+		out = append(out, model.CWE{CVE: value.CVE, ID: value.CWE, Source: value.Source, Type: value.Type})
 	}
 	return out
 }
@@ -390,4 +392,4 @@ func jsonCWEs(values []grypeJSONCWE) []sdk.CWE {
 // CLI as an SPDX document, so coverage is whatever that binary derives from the
 // PURLs rather than anything this package maps. nil reads as "all ecosystems",
 // which is the honest answer here.
-var supportedEcosystems []sdk.Ecosystem
+var supportedEcosystems []model.Ecosystem

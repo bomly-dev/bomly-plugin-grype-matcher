@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/model"
 )
 
 type grypeAdvisory struct {
@@ -15,41 +15,41 @@ type grypeAdvisory struct {
 	SeveritySource       string
 	Description          string
 	URLs                 []string
-	CVSS                 []sdk.CVSSScore
+	CVSS                 []model.CVSSScore
 	FixedVersions        []string
 	FixedIn              string
-	FixState             sdk.FixState
-	FixAvailable         []sdk.FixAvailable
+	FixState             model.FixState
+	FixAvailable         []model.FixAvailable
 	AffectedVersionRange string
-	References           []sdk.Reference
+	References           []model.Reference
 	Aliases              []string
-	KnownExploited       []sdk.KnownExploited
-	EPSS                 []sdk.EPSSScore
-	CWEs                 []sdk.CWE
+	KnownExploited       []model.KnownExploited
+	EPSS                 []model.EPSSScore
+	CWEs                 []model.CWE
 	RiskScore            float64
 	CPEs                 []string
 }
 
-func mapGrypeAdvisory(advisory grypeAdvisory) sdk.Vulnerability {
+func mapGrypeAdvisory(advisory grypeAdvisory) model.Vulnerability {
 	fixedIn := strings.TrimSpace(advisory.FixedIn)
 	if fixedIn == "" && len(advisory.FixedVersions) > 0 {
 		fixedIn = strings.TrimSpace(advisory.FixedVersions[0])
 	}
-	severity := sdk.ParseSeverityLevel(advisory.Severity)
+	severity := model.ParseSeverityLevel(advisory.Severity)
 	description := strings.TrimSpace(advisory.Description)
 	title := strings.TrimSpace(advisory.ID)
 	if description != "" {
 		title = description
 	}
-	refs := append([]sdk.Reference(nil), advisory.References...)
+	refs := append([]model.Reference(nil), advisory.References...)
 	if advisory.DataSource != "" {
-		refs = appendUniqueReference(refs, sdk.Reference{URL: advisory.DataSource, Type: sdk.ReferenceTypeDataSource})
+		refs = appendUniqueReference(refs, model.Reference{URL: advisory.DataSource, Type: model.ReferenceTypeDataSource})
 	}
 	for _, url := range advisory.URLs {
-		refs = appendUniqueReference(refs, sdk.Reference{URL: url, Type: sdk.ReferenceTypeAdvisory})
+		refs = appendUniqueReference(refs, model.Reference{URL: url, Type: model.ReferenceTypeAdvisory})
 	}
 
-	return sdk.Vulnerability{
+	return model.Vulnerability{
 		ID:                   advisory.ID,
 		Title:                title,
 		ParsedSeverity:       severity,
@@ -58,17 +58,17 @@ func mapGrypeAdvisory(advisory grypeAdvisory) sdk.Vulnerability {
 		Details:              description,
 		Reasons:              grypeReasons(advisory, fixedIn),
 		Source:               matcherName,
-		CVSS:                 append([]sdk.CVSSScore(nil), advisory.CVSS...),
+		CVSS:                 append([]model.CVSSScore(nil), advisory.CVSS...),
 		FixedIn:              fixedIn,
 		FixedVersions:        dedupeStrings(advisory.FixedVersions),
 		FixState:             advisory.FixState,
-		FixAvailable:         append([]sdk.FixAvailable(nil), advisory.FixAvailable...),
+		FixAvailable:         append([]model.FixAvailable(nil), advisory.FixAvailable...),
 		AffectedVersionRange: advisory.AffectedVersionRange,
 		References:           refs,
 		KEVExploited:         len(advisory.KnownExploited) > 0,
 		KnownExploited:       cloneKnownExploited(advisory.KnownExploited),
-		EPSS:                 append([]sdk.EPSSScore(nil), advisory.EPSS...),
-		CWEs:                 append([]sdk.CWE(nil), advisory.CWEs...),
+		EPSS:                 append([]model.EPSSScore(nil), advisory.EPSS...),
+		CWEs:                 append([]model.CWE(nil), advisory.CWEs...),
 		RiskScore:            advisory.RiskScore,
 		DataSource:           advisory.DataSource,
 		Namespace:            advisory.Namespace,
@@ -93,13 +93,13 @@ func grypeReasons(advisory grypeAdvisory, fixedIn string) []string {
 	return reasons
 }
 
-func mergePackageVulnerability(base, incoming sdk.Vulnerability) sdk.Vulnerability {
+func mergePackageVulnerability(base, incoming model.Vulnerability) model.Vulnerability {
 	base.Title = firstNonEmpty(base.Title, incoming.Title)
-	base.ParsedSeverity = sdk.ParseSeverityLevel(firstNonEmpty(string(base.ParsedSeverity), string(incoming.ParsedSeverity)))
+	base.ParsedSeverity = model.ParseSeverityLevel(firstNonEmpty(string(base.ParsedSeverity), string(incoming.ParsedSeverity)))
 	base.SeveritySource = firstNonEmpty(base.SeveritySource, incoming.SeveritySource)
 	base.Details = firstNonEmpty(base.Details, incoming.Details)
 	base.FixedIn = firstNonEmpty(base.FixedIn, incoming.FixedIn)
-	base.FixState = sdk.FixState(firstNonEmpty(string(base.FixState), string(incoming.FixState)))
+	base.FixState = model.FixState(firstNonEmpty(string(base.FixState), string(incoming.FixState)))
 	base.AffectedVersionRange = firstNonEmpty(base.AffectedVersionRange, incoming.AffectedVersionRange)
 	base.DataSource = firstNonEmpty(base.DataSource, incoming.DataSource)
 	base.Namespace = firstNonEmpty(base.Namespace, incoming.Namespace)
@@ -161,13 +161,13 @@ func appendUniqueStrings(existing []string, values ...string) []string {
 	return out
 }
 
-func appendUniqueReference(existing []sdk.Reference, ref sdk.Reference) []sdk.Reference {
+func appendUniqueReference(existing []model.Reference, ref model.Reference) []model.Reference {
 	return appendUniqueReferences(existing, ref)
 }
 
-func appendUniqueReferences(existing []sdk.Reference, values ...sdk.Reference) []sdk.Reference {
+func appendUniqueReferences(existing []model.Reference, values ...model.Reference) []model.Reference {
 	seen := make(map[string]struct{}, len(existing)+len(values))
-	out := make([]sdk.Reference, 0, len(existing)+len(values))
+	out := make([]model.Reference, 0, len(existing)+len(values))
 	for _, ref := range existing {
 		key := ref.URL + "\x00" + string(ref.Type)
 		if strings.TrimSpace(ref.URL) == "" || key == "\x00" {
@@ -193,9 +193,9 @@ func appendUniqueReferences(existing []sdk.Reference, values ...sdk.Reference) [
 	return out
 }
 
-func appendUniqueCVSS(existing []sdk.CVSSScore, values ...sdk.CVSSScore) []sdk.CVSSScore {
+func appendUniqueCVSS(existing []model.CVSSScore, values ...model.CVSSScore) []model.CVSSScore {
 	seen := make(map[string]struct{}, len(existing)+len(values))
-	out := make([]sdk.CVSSScore, 0, len(existing)+len(values))
+	out := make([]model.CVSSScore, 0, len(existing)+len(values))
 	for _, score := range append(existing, values...) {
 		key := score.Source + "\x00" + string(score.Version) + "\x00" + score.Vector
 		if key == "\x00\x00" {
@@ -210,9 +210,9 @@ func appendUniqueCVSS(existing []sdk.CVSSScore, values ...sdk.CVSSScore) []sdk.C
 	return out
 }
 
-func appendUniqueFixAvailable(existing []sdk.FixAvailable, values ...sdk.FixAvailable) []sdk.FixAvailable {
+func appendUniqueFixAvailable(existing []model.FixAvailable, values ...model.FixAvailable) []model.FixAvailable {
 	seen := make(map[string]struct{}, len(existing)+len(values))
-	out := make([]sdk.FixAvailable, 0, len(existing)+len(values))
+	out := make([]model.FixAvailable, 0, len(existing)+len(values))
 	for _, fix := range append(existing, values...) {
 		key := fix.Version + "\x00" + fix.Date + "\x00" + string(fix.Kind)
 		if key == "\x00\x00" {
@@ -227,9 +227,9 @@ func appendUniqueFixAvailable(existing []sdk.FixAvailable, values ...sdk.FixAvai
 	return out
 }
 
-func appendUniqueEPSS(existing []sdk.EPSSScore, values ...sdk.EPSSScore) []sdk.EPSSScore {
+func appendUniqueEPSS(existing []model.EPSSScore, values ...model.EPSSScore) []model.EPSSScore {
 	seen := make(map[string]struct{}, len(existing)+len(values))
-	out := make([]sdk.EPSSScore, 0, len(existing)+len(values))
+	out := make([]model.EPSSScore, 0, len(existing)+len(values))
 	for _, epss := range append(existing, values...) {
 		key := epss.CVE + "\x00" + epss.Date
 		if key == "\x00" && epss.EPSS == 0 && epss.Percentile == 0 {
@@ -244,9 +244,9 @@ func appendUniqueEPSS(existing []sdk.EPSSScore, values ...sdk.EPSSScore) []sdk.E
 	return out
 }
 
-func appendUniqueCWEs(existing []sdk.CWE, values ...sdk.CWE) []sdk.CWE {
+func appendUniqueCWEs(existing []model.CWE, values ...model.CWE) []model.CWE {
 	seen := make(map[string]struct{}, len(existing)+len(values))
-	out := make([]sdk.CWE, 0, len(existing)+len(values))
+	out := make([]model.CWE, 0, len(existing)+len(values))
 	for _, cwe := range append(existing, values...) {
 		key := cwe.CVE + "\x00" + cwe.ID + "\x00" + cwe.Source + "\x00" + cwe.Type
 		if key == "\x00\x00\x00" {
@@ -261,13 +261,13 @@ func appendUniqueCWEs(existing []sdk.CWE, values ...sdk.CWE) []sdk.CWE {
 	return out
 }
 
-func cloneKnownExploited(src []sdk.KnownExploited) []sdk.KnownExploited {
+func cloneKnownExploited(src []model.KnownExploited) []model.KnownExploited {
 	return appendUniqueKnownExploited(nil, src...)
 }
 
-func appendUniqueKnownExploited(existing []sdk.KnownExploited, values ...sdk.KnownExploited) []sdk.KnownExploited {
+func appendUniqueKnownExploited(existing []model.KnownExploited, values ...model.KnownExploited) []model.KnownExploited {
 	seen := make(map[string]struct{}, len(existing)+len(values))
-	out := make([]sdk.KnownExploited, 0, len(existing)+len(values))
+	out := make([]model.KnownExploited, 0, len(existing)+len(values))
 	for _, item := range append(existing, values...) {
 		key := item.CVE + "\x00" + item.DateAdded + "\x00" + item.Product
 		if key == "\x00\x00" {

@@ -18,9 +18,11 @@ import (
 	grypevuln "github.com/anchore/grype/grype/vulnerability"
 	"github.com/anchore/syft/syft/cpe"
 	syftPkg "github.com/anchore/syft/syft/pkg"
-	"github.com/bomly-dev/bomly-sdk"
 	matchers "github.com/bomly-dev/bomly-sdk/matcherkit"
 	"go.uber.org/zap"
+
+	"github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 // clioID is the clio application identity presented when opening the Grype vulnerability DB.
@@ -29,15 +31,15 @@ var clioID = grypeclio.Identification{Name: "grype"}
 // Ready reports whether the bundled Grype matcher can run. The database may be
 // downloaded during Match on first use, so a missing cache does not make the
 // matcher unavailable.
-func (a Matcher) Ready(context.Context, sdk.MatchRequest) error {
+func (a Matcher) Ready(context.Context, sdkplugin.MatchRequest) error {
 	return nil
 }
 
 // Match attaches Grype vulnerability matches to packages in the graph.
-func (a Matcher) Match(_ context.Context, req sdk.MatchRequest) (sdk.MatchResult, error) {
+func (a Matcher) Match(_ context.Context, req sdkplugin.MatchRequest) (sdkplugin.MatchResult, error) {
 	started := time.Now()
 	if req.Graph == nil || req.Registry == nil {
-		return sdk.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, nil
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, nil
 	}
 
 	logger := a.logger()
@@ -64,7 +66,7 @@ func (a Matcher) Match(_ context.Context, req sdk.MatchRequest) (sdk.MatchResult
 		if needsDownload {
 			action = "downloading"
 		}
-		return sdk.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype vulnerability DB %s failed: %w", action, err)
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype vulnerability DB %s failed: %w", action, err)
 	}
 	if status != nil {
 		logger.Debug(fmt.Sprintf("Grype vulnerability DB loaded, built at %s", status.Built))
@@ -88,13 +90,13 @@ func (a Matcher) Match(_ context.Context, req sdk.MatchRequest) (sdk.MatchResult
 
 	matches, _, err := vm.FindMatches(grypePkgs, grypepkg.Context{})
 	if err != nil {
-		return sdk.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, len(packages), 0)}, fmt.Errorf("grype: find matches: %w", err)
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, len(packages), 0)}, fmt.Errorf("grype: find matches: %w", err)
 	}
 
 	applyMatches(matches, req.Registry)
 	matchedPackages, vulnerabilities := grypeMatchCounts(matches)
 	logger.Info(fmt.Sprintf("Grype enrichment matched vulnerabilities in %s", formatDuration(time.Since(started))))
-	return sdk.MatchResult{
+	return sdkplugin.MatchResult{
 		Registry:     req.Registry,
 		MatcherStats: grypeMatcherStats(matchedPackages, len(packages)-matchedPackages, vulnerabilities),
 	}, nil
@@ -113,7 +115,7 @@ func (a Matcher) Match(_ context.Context, req sdk.MatchRequest) (sdk.MatchResult
 // Distro and upstream (origin) packages are derived from the PURL qualifiers
 // Syft records for OS packages — Grype's OS matchers are distro-namespace
 // driven and match nothing without them. See purl_builtin.go.
-func graphPkgToGrypePkg(p *sdk.Package) grypepkg.Package {
+func graphPkgToGrypePkg(p *model.Package) grypepkg.Package {
 	syftType := ecosystemToSyftType(string(p.Ecosystem))
 	name := p.EcosystemName()
 	return grypepkg.Package{
@@ -142,37 +144,37 @@ func graphPkgToGrypePkg(p *sdk.Package) grypepkg.Package {
 // from the PURL qualifiers Syft records, so those ecosystems only match when
 // the PURL carries a `distro=` qualifier — true for image scans and for SBOMs
 // produced from one, not for a bare `pkg:apk/openssl@3.0.8-r0`.
-var supportedEcosystems = []sdk.Ecosystem{
-	sdk.EcosystemNPM,
-	sdk.EcosystemMaven,
-	sdk.EcosystemScala,
-	sdk.EcosystemGo,
-	sdk.EcosystemPython,
-	sdk.EcosystemDotNet,
-	sdk.EcosystemRuby,
-	sdk.EcosystemRust,
-	sdk.EcosystemDart,
-	sdk.EcosystemElixir,
-	sdk.EcosystemErlang,
-	sdk.EcosystemPHP,
-	sdk.EcosystemSwift,
-	sdk.EcosystemHaskell,
-	sdk.EcosystemR,
-	sdk.EcosystemLua,
-	sdk.EcosystemCPP,
-	sdk.EcosystemOCaml,
-	sdk.EcosystemProlog,
-	sdk.EcosystemConda,
-	sdk.EcosystemNix,
-	sdk.EcosystemTerraform,
-	sdk.EcosystemWordPress,
-	sdk.EcosystemALPM,
-	sdk.EcosystemAPK,
-	sdk.EcosystemDPKG,
-	sdk.EcosystemRPM,
-	sdk.EcosystemPortage,
-	sdk.EcosystemHomebrew,
-	sdk.EcosystemGitHub,
+var supportedEcosystems = []model.Ecosystem{
+	model.EcosystemNPM,
+	model.EcosystemMaven,
+	model.EcosystemScala,
+	model.EcosystemGo,
+	model.EcosystemPython,
+	model.EcosystemDotNet,
+	model.EcosystemRuby,
+	model.EcosystemRust,
+	model.EcosystemDart,
+	model.EcosystemElixir,
+	model.EcosystemErlang,
+	model.EcosystemPHP,
+	model.EcosystemSwift,
+	model.EcosystemHaskell,
+	model.EcosystemR,
+	model.EcosystemLua,
+	model.EcosystemCPP,
+	model.EcosystemOCaml,
+	model.EcosystemProlog,
+	model.EcosystemConda,
+	model.EcosystemNix,
+	model.EcosystemTerraform,
+	model.EcosystemWordPress,
+	model.EcosystemALPM,
+	model.EcosystemAPK,
+	model.EcosystemDPKG,
+	model.EcosystemRPM,
+	model.EcosystemPortage,
+	model.EcosystemHomebrew,
+	model.EcosystemGitHub,
 }
 
 func ecosystemToSyftType(ecosystem string) syftPkg.Type {
@@ -285,7 +287,7 @@ func ecosystemToSyftLanguage(ecosystem string) syftPkg.Language {
 // applyMatches converts Grype match results into vulnerability enrichment on the
 // PURL-keyed package registry. The Grype package ID was set to the canonical
 // PURL by graphPkgToGrypePkg.
-func applyMatches(matches *grypematch.Matches, registry *sdk.PackageRegistry) {
+func applyMatches(matches *grypematch.Matches, registry *model.PackageRegistry) {
 	if matches == nil || registry == nil {
 		return
 	}
@@ -326,13 +328,13 @@ func grypeMatchCounts(matches *grypematch.Matches) (int, int) {
 	return len(seen), vulnerabilities
 }
 
-func mapBuiltinMatch(m grypematch.Match) sdk.Vulnerability {
+func mapBuiltinMatch(m grypematch.Match) model.Vulnerability {
 	vuln := m.Vulnerability
 	advisory := grypeAdvisory{
 		ID:                   vuln.ID,
 		Namespace:            vuln.Namespace,
 		FixedVersions:        append([]string(nil), vuln.Fix.Versions...),
-		FixState:             sdk.FixState(vuln.Fix.State),
+		FixState:             model.FixState(vuln.Fix.State),
 		AffectedVersionRange: constraintString(vuln.Constraint),
 		CPEs:                 cpeStrings(vuln.CPEs),
 	}
@@ -350,14 +352,14 @@ func mapBuiltinMatch(m grypematch.Match) sdk.Vulnerability {
 		advisory.RiskScore = vuln.Metadata.RiskScore()
 	}
 	for _, fix := range vuln.Fix.Available {
-		advisory.FixAvailable = append(advisory.FixAvailable, sdk.FixAvailable{
+		advisory.FixAvailable = append(advisory.FixAvailable, model.FixAvailable{
 			Version: fix.Version,
 			Date:    dateString(fix.Date),
-			Kind:    sdk.FixAvailableKind(fix.Kind),
+			Kind:    model.FixAvailableKind(fix.Kind),
 		})
 	}
 	for _, advisoryRef := range vuln.Advisories {
-		advisory.References = append(advisory.References, sdk.Reference{URL: advisoryRef.Link, Type: sdk.ReferenceTypeAdvisory})
+		advisory.References = append(advisory.References, model.Reference{URL: advisoryRef.Link, Type: model.ReferenceTypeAdvisory})
 	}
 	for _, related := range vuln.RelatedVulnerabilities {
 		if related.ID != "" {
@@ -374,32 +376,32 @@ func constraintString(constraint fmt.Stringer) string {
 	return constraint.String()
 }
 
-func builtinCVSS(scores []grypevuln.Cvss) []sdk.CVSSScore {
+func builtinCVSS(scores []grypevuln.Cvss) []model.CVSSScore {
 	if len(scores) == 0 {
 		return nil
 	}
-	out := make([]sdk.CVSSScore, 0, len(scores))
+	out := make([]model.CVSSScore, 0, len(scores))
 	for _, score := range scores {
 		if score.Vector == "" && score.Metrics.BaseScore == 0 {
 			continue
 		}
-		out = append(out, sdk.CVSSScore{
+		out = append(out, model.CVSSScore{
 			Vector:  score.Vector,
 			Score:   score.Metrics.BaseScore,
-			Version: sdk.SeverityType(score.Version),
+			Version: model.SeverityType(score.Version),
 			Source:  score.Source,
 		})
 	}
 	return out
 }
 
-func builtinKnownExploited(values []grypevuln.KnownExploited) []sdk.KnownExploited {
+func builtinKnownExploited(values []grypevuln.KnownExploited) []model.KnownExploited {
 	if len(values) == 0 {
 		return nil
 	}
-	out := make([]sdk.KnownExploited, 0, len(values))
+	out := make([]model.KnownExploited, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.KnownExploited{
+		out = append(out, model.KnownExploited{
 			CVE:                        value.CVE,
 			VendorProject:              value.VendorProject,
 			Product:                    value.Product,
@@ -415,13 +417,13 @@ func builtinKnownExploited(values []grypevuln.KnownExploited) []sdk.KnownExploit
 	return out
 }
 
-func builtinEPSS(values []grypevuln.EPSS) []sdk.EPSSScore {
+func builtinEPSS(values []grypevuln.EPSS) []model.EPSSScore {
 	if len(values) == 0 {
 		return nil
 	}
-	out := make([]sdk.EPSSScore, 0, len(values))
+	out := make([]model.EPSSScore, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.EPSSScore{
+		out = append(out, model.EPSSScore{
 			CVE:        value.CVE,
 			EPSS:       value.EPSS,
 			Percentile: value.Percentile,
@@ -431,13 +433,13 @@ func builtinEPSS(values []grypevuln.EPSS) []sdk.EPSSScore {
 	return out
 }
 
-func builtinCWEs(values []grypevuln.CWE) []sdk.CWE {
+func builtinCWEs(values []grypevuln.CWE) []model.CWE {
 	if len(values) == 0 {
 		return nil
 	}
-	out := make([]sdk.CWE, 0, len(values))
+	out := make([]model.CWE, 0, len(values))
 	for _, value := range values {
-		out = append(out, sdk.CWE{
+		out = append(out, model.CWE{
 			CVE:    value.CVE,
 			ID:     value.CWE,
 			Source: value.Source,
