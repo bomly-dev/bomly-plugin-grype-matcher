@@ -10,6 +10,7 @@ import (
 
 	grypeclio "github.com/anchore/clio"
 	grypelib "github.com/anchore/grype/grype"
+	v6 "github.com/anchore/grype/grype/db/v6"
 	v6dist "github.com/anchore/grype/grype/db/v6/distribution"
 	v6inst "github.com/anchore/grype/grype/db/v6/installation"
 	grypematch "github.com/anchore/grype/grype/match"
@@ -28,6 +29,11 @@ import (
 // clioID is the clio application identity presented when opening the Grype vulnerability DB.
 var clioID = grypeclio.Identification{Name: "grype"}
 
+// defaultDBMaxAge is the age past which the database is reported stale. It
+// is Grype's own MaxAllowedBuiltAge default; Grype refuses to load a database
+// older than that, this matcher warns and matches anyway.
+const defaultDBMaxAge = 5 * 24 * time.Hour
+
 // Ready reports whether the bundled Grype matcher can run. The database may be
 // downloaded during Match on first use, so a missing cache does not make the
 // matcher unavailable.
@@ -44,33 +50,19 @@ func (a Matcher) Match(_ context.Context, req sdkplugin.MatchRequest) (sdkplugin
 
 	logger := a.logger()
 
-	needsDownload := !a.dbExists()
-	if needsDownload {
-		logger.Info(fmt.Sprintf("Grype vulnerability DB not found; downloading now at %s", a.dbDir()))
-	}
-
 	distCfg := v6dist.DefaultConfig()
 	if dc, ok := a.DistConfigOverride.(*v6dist.Config); ok && dc != nil {
 		distCfg = *dc
 	}
 	distCfg.ID = clioID
-	installCfg := v6inst.DefaultConfig(clioID)
-	installCfg.DBRootDir = a.dbDir()
-	installCfg.ValidateAge = false
 
 	logger.Debug(fmt.Sprintf("Grype loading vulnerability database from %s", a.dbDir()))
-	provider, status, err := grypelib.LoadVulnerabilityDB(distCfg, installCfg, needsDownload)
+	provider, status, err := a.loadDB(logger, distCfg)
 	if err != nil {
 		logger.Warn("Grype failed to load vulnerability DB, skipping", zap.Error(err))
-		action := "loading"
-		if needsDownload {
-			action = "downloading"
-		}
-		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype vulnerability DB %s failed: %w", action, err)
+		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype vulnerability DB unavailable: %w", err)
 	}
-	if status != nil {
-		logger.Debug(fmt.Sprintf("Grype vulnerability DB loaded, built at %s", status.Built))
-	}
+	a.reportDBAge(logger, status.Built, time.Now())
 
 	packages := matchers.RegistryPackagesForGraph(req.Graph, req.Registry, req.Target)
 	logger.Info(fmt.Sprintf("Grype enriching %d packages with vulnerability data", len(packages)))
@@ -100,6 +92,106 @@ func (a Matcher) Match(_ context.Context, req sdkplugin.MatchRequest) (sdkplugin
 		Registry:     req.Registry,
 		MatcherStats: grypeMatcherStats(matchedPackages, len(packages)-matchedPackages, vulnerabilities),
 	}, nil
+}
+
+// loadDB opens the local Grype database, first asking Grype's curator to
+// refresh it unless DisableDBUpdate is set. This is what grype.LoadVulnerabilityDB
+// does, inlined so the update outcome reaches Bomly's logger: the library
+// reports it only through Grype's own logger, which is not wired up here.
+//
+// The curator does the actual work. With no database it downloads one. With
+// one present it asks the distribution service for a newer build at most once
+// per UpdateCheckMaxFrequency and installs it when there is one. Until v0.6.0
+// this matcher asked only when the directory was missing, so a database
+// downloaded once was used for ever, and an enriched scan reported nothing
+// published after it was built -- silently (bomly-dev/bomly-cli#510).
+func (a Matcher) loadDB(logger *zap.Logger, distCfg v6dist.Config) (grypevuln.Provider, *grypevuln.ProviderStatus, error) {
+	installCfg := v6inst.DefaultConfig(clioID)
+	installCfg.DBRootDir = a.dbDir()
+	// An old database still matches, so its age is reported by reportDBAge
+	// rather than enforced: with ValidateAge on, the curator refuses to open
+	// a database older than MaxAllowedBuiltAge, and an offline scan would
+	// then lose Grype entirely.
+	installCfg.ValidateAge = false
+	if a.DBUpdateCheckInterval > 0 {
+		installCfg.UpdateCheckMaxFrequency = a.DBUpdateCheckInterval
+	}
+
+	client, err := v6dist.NewClient(distCfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("distribution client: %w", err)
+	}
+	curator, err := v6inst.NewCurator(installCfg, client)
+	if err != nil {
+		return nil, nil, fmt.Errorf("database curator: %w", err)
+	}
+
+	if a.DisableDBUpdate {
+		logger.Debug("Grype vulnerability DB update disabled; using the local copy as it is")
+	} else {
+		updated, err := curator.Update()
+		switch {
+		case err != nil:
+			logger.Warn("Grype vulnerability DB update check failed; matching with the local copy", zap.Error(err))
+		case updated:
+			logger.Info(fmt.Sprintf("Grype vulnerability DB downloaded to %s", a.dbDir()))
+		default:
+			logger.Debug(fmt.Sprintf("Grype vulnerability DB is current, or was checked within the last %s", installCfg.UpdateCheckMaxFrequency))
+		}
+	}
+
+	status := curator.Status()
+	if status.Error != nil {
+		return nil, nil, status.Error
+	}
+	reader, err := curator.Reader()
+	if err != nil {
+		return nil, nil, fmt.Errorf("database reader: %w", err)
+	}
+	return v6.NewVulnerabilityProvider(reader), &status, nil
+}
+
+// maxDBAge returns the configured staleness limit, or Grype's default.
+func (a Matcher) maxDBAge() time.Duration {
+	if a.DBMaxAge > 0 {
+		return a.DBMaxAge
+	}
+	return defaultDBMaxAge
+}
+
+// reportDBAge logs when the database was built: at WARN, which Bomly shows
+// without -v, once it is older than the limit, because every advisory
+// published since is missing from this run's findings; at INFO otherwise.
+func (a Matcher) reportDBAge(logger *zap.Logger, built, now time.Time) {
+	age, stale := dbAge(built, now, a.maxDBAge())
+	switch {
+	case built.IsZero():
+		logger.Debug("Grype vulnerability DB reports no build time")
+	case stale:
+		logger.Warn(fmt.Sprintf("Grype vulnerability DB was built %s ago, past the %s limit; advisories published since then are missing until a newer database downloads", formatAge(age), formatAge(a.maxDBAge())))
+	default:
+		logger.Info(fmt.Sprintf("Grype vulnerability DB built %s (%s ago)", built.UTC().Format(time.RFC3339), formatAge(age)))
+	}
+}
+
+// dbAge returns how old a database built at the given time is, and whether
+// that exceeds maxAge. A zero build time is never stale: there is nothing to
+// measure.
+func dbAge(built, now time.Time, maxAge time.Duration) (time.Duration, bool) {
+	if built.IsZero() {
+		return 0, false
+	}
+	age := now.Sub(built)
+	return age, age > maxAge
+}
+
+// formatAge renders a database age in whole days once it is a day or more,
+// and as a short duration below that.
+func formatAge(value time.Duration) string {
+	if value >= 24*time.Hour {
+		return fmt.Sprintf("%dd", int(value.Hours()/24))
+	}
+	return formatDuration(value)
 }
 
 // graphPkgToGrypePkg builds a Grype package from a registry package, using the

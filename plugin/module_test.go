@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/bomly-dev/bomly-sdk/conformance"
 	"go.uber.org/zap"
@@ -55,6 +57,38 @@ func TestModuleConstructsMatcher(t *testing.T) {
 	}
 	if matcher.Logger == nil {
 		t.Fatal("expected logger to be injected")
+	}
+	if matcher.DisableDBUpdate {
+		t.Fatal("db_auto_update defaults to true")
+	}
+	if matcher.DBMaxAge != 0 || matcher.DBUpdateCheckInterval != 0 {
+		t.Fatalf("unset durations must stay zero (library defaults), got max age %s, check interval %s", matcher.DBMaxAge, matcher.DBUpdateCheckInterval)
+	}
+}
+
+// TestModuleDecodesDBFreshnessConfig covers the managed-execution keys that
+// control the database refresh: the opt-out, the staleness limit, and the
+// update-check interval, plus the rejection of a malformed duration.
+func TestModuleDecodesDBFreshnessConfig(t *testing.T) {
+	cfg := json.RawMessage(`{"db_auto_update": false, "db_max_age": "48h", "db_update_check_interval": "30m"}`)
+	component, err := Module().Matcher.New(context.Background(), testHost{config: cfg})
+	if err != nil {
+		t.Fatalf("construct matcher: %v", err)
+	}
+	matcher := component.(Matcher)
+	if !matcher.DisableDBUpdate {
+		t.Fatal("db_auto_update=false should disable the update check")
+	}
+	if matcher.DBMaxAge != 48*time.Hour {
+		t.Fatalf("db_max_age = %s, want 48h", matcher.DBMaxAge)
+	}
+	if matcher.DBUpdateCheckInterval != 30*time.Minute {
+		t.Fatalf("db_update_check_interval = %s, want 30m", matcher.DBUpdateCheckInterval)
+	}
+
+	_, err = Module().Matcher.New(context.Background(), testHost{config: json.RawMessage(`{"db_max_age": "five days"}`)})
+	if err == nil || !strings.Contains(err.Error(), "db_max_age") {
+		t.Fatalf("expected a db_max_age parse error, got %v", err)
 	}
 }
 
