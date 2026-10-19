@@ -57,14 +57,6 @@ func TestReady_TrueWhenDBDirAbsent(t *testing.T) {
 	}
 }
 
-func TestDBExists_TrueWhenDBDirExists(t *testing.T) {
-	dir := t.TempDir()
-	a := Matcher{DBDir: dir}
-	if !a.dbExists() {
-		t.Error("dbExists() = false, want true when DB dir exists")
-	}
-}
-
 func TestMatch_DBNotPresent_AttemptsDownloadAndReturnsEmpty(t *testing.T) {
 	// Inject a bad LatestURL so the download fails fast without network access.
 	// Match should warn and return an empty result rather than hard-failing.
@@ -90,6 +82,89 @@ func TestMatch_DBNotPresent_AttemptsDownloadAndReturnsEmpty(t *testing.T) {
 	}
 	if result.Registry != registry {
 		t.Fatalf("expected original registry to be returned when DB download fails")
+	}
+}
+
+// TestMatch_DBUpdateDisabled_MissingDBFailsWithoutNetwork pins the opt-out:
+// with updates disabled the matcher never contacts the distribution service,
+// so a missing database is an error rather than a download.
+func TestMatch_DBUpdateDisabled_MissingDBFailsWithoutNetwork(t *testing.T) {
+	unreachable := v6dist.DefaultConfig()
+	unreachable.LatestURL = "http://127.0.0.1:0/never-contacted"
+	unreachable.CheckTimeout = 2 * time.Second
+
+	a := Matcher{
+		DBDir:              filepath.Join(t.TempDir(), "no-db"),
+		DistConfigOverride: &unreachable,
+		DisableDBUpdate:    true,
+	}
+
+	dep := testkit.MustDependencyNode(t, "pkg:npm/lodash@4.17.15")
+	g := model.New()
+	if err := g.AddNode(dep); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+	registry := model.NewPackageRegistry()
+
+	started := time.Now()
+	result, err := a.Match(context.Background(), sdkplugin.MatchRequest{Graph: g, Registry: registry})
+	if err == nil {
+		t.Fatal("expected an error when the database is missing and updates are disabled")
+	}
+	if elapsed := time.Since(started); elapsed > unreachable.CheckTimeout {
+		t.Fatalf("Match took %s, longer than the check timeout: it contacted the distribution service", elapsed)
+	}
+	if result.Registry != registry {
+		t.Fatal("expected the original registry to be returned")
+	}
+}
+
+func TestDBAge(t *testing.T) {
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name  string
+		built time.Time
+		max   time.Duration
+		stale bool
+	}{
+		{name: "fresh", built: now.Add(-36 * time.Hour), max: 5 * 24 * time.Hour, stale: false},
+		{name: "at the limit", built: now.Add(-5 * 24 * time.Hour), max: 5 * 24 * time.Hour, stale: false},
+		{name: "stale", built: time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC), max: 5 * 24 * time.Hour, stale: true},
+		{name: "custom limit", built: now.Add(-3 * 24 * time.Hour), max: 48 * time.Hour, stale: true},
+		{name: "unknown build time", built: time.Time{}, max: time.Hour, stale: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			age, stale := dbAge(tc.built, now, tc.max)
+			if stale != tc.stale {
+				t.Fatalf("dbAge(%s) stale = %v, want %v (age %s)", tc.name, stale, tc.stale, age)
+			}
+			if !tc.built.IsZero() && age != now.Sub(tc.built) {
+				t.Fatalf("age = %s, want %s", age, now.Sub(tc.built))
+			}
+		})
+	}
+}
+
+func TestMaxDBAgeDefaultsToGrypeLimit(t *testing.T) {
+	if got := (Matcher{}).maxDBAge(); got != defaultDBMaxAge {
+		t.Fatalf("maxDBAge() = %s, want %s", got, defaultDBMaxAge)
+	}
+	if got := (Matcher{DBMaxAge: 48 * time.Hour}).maxDBAge(); got != 48*time.Hour {
+		t.Fatalf("maxDBAge() = %s, want 48h", got)
+	}
+}
+
+func TestFormatAge(t *testing.T) {
+	cases := map[time.Duration]string{
+		90 * time.Minute:               "1h30m0s",
+		24 * time.Hour:                 "1d",
+		127*24*time.Hour + 5*time.Hour: "127d",
+	}
+	for value, want := range cases {
+		if got := formatAge(value); got != want {
+			t.Errorf("formatAge(%s) = %q, want %q", value, got, want)
+		}
 	}
 }
 

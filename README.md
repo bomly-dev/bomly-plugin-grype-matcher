@@ -36,8 +36,13 @@ This matcher performs network calls **only during enrichment** (`bomly scan
 --enrich`), never during audit-only runs:
 
 - builtin: `https://grype.anchore.io/databases` (plus the archive URL it
-  returns) to download and refresh the vulnerability database, stored under
-  the OS cache directory (`grype/db`) or `db_dir`.
+  returns) to download the vulnerability database on first use and, at most
+  once every `db_update_check_interval` (default 2h), to check for and
+  download a newer build. The database is stored under the OS cache directory
+  (`grype/db`) or `db_dir`. When it cannot be refreshed, the matcher keeps
+  matching against the local copy and warns once the copy is older than
+  `db_max_age` (default five days), because every advisory published since
+  is missing from that run. `db_auto_update: false` skips the check entirely.
 - external: whatever the installed `grype` binary itself does (typically the
   same database service).
 
@@ -50,6 +55,13 @@ Embedded execution is configured by the Bomly CLI (it constructs
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `db_dir` | string | OS cache dir + `/grype/db` | Grype vulnerability DB directory (builtin variant) |
+| `db_auto_update` | bool | `true` | Check Grype's distribution service for a newer database and download it (builtin variant); `false` uses the local copy as it is and fails when there is none |
+| `db_max_age` | duration | `120h` | Age past which the matcher warns that its database is stale (builtin variant) |
+| `db_update_check_interval` | duration | `2h` | Minimum time between update checks (builtin variant) |
+
+Durations use Go syntax (`30m`, `48h`); there is no day unit, so five days is
+`120h`. Embedded in the Bomly CLI, the same three settings are exposed as
+`matchers.grype.*` configuration keys.
 
 ## Package-updates delta protocol: not adopted
 

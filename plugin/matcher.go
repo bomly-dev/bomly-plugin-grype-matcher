@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -26,6 +27,21 @@ type Matcher struct {
 	Logger *zap.Logger
 	// DistConfigOverride overrides the default distribution config (e.g., LatestURL).
 	DistConfigOverride any
+	// DisableDBUpdate stops the builtin variant from asking Grype's
+	// distribution service for a newer database. The local copy is used as it
+	// is, and a missing one is an error. By default the matcher checks at most
+	// once per DBUpdateCheckInterval and downloads a newer build when there is
+	// one, so an enriched scan does not keep answering from the database it
+	// downloaded months ago (bomly-dev/bomly-cli#510).
+	DisableDBUpdate bool
+	// DBMaxAge is the age past which the builtin variant warns that its
+	// database is stale and advisories published since are missing. Zero
+	// means Grype's own default of five days.
+	DBMaxAge time.Duration
+	// DBUpdateCheckInterval bounds how often the builtin variant asks the
+	// distribution service for a newer database. Zero means Grype's own
+	// default of two hours.
+	DBUpdateCheckInterval time.Duration
 }
 
 func appendOrMergeVulnerability(existing []model.Vulnerability, entry model.Vulnerability) []model.Vulnerability {
@@ -60,11 +76,6 @@ func (a Matcher) Descriptor() sdkplugin.MatcherDescriptor {
 		// external.go.
 		SupportedEcosystems: supportedEcosystems,
 	}
-}
-
-func (a Matcher) dbExists() bool {
-	info, err := os.Stat(a.dbDir())
-	return err == nil && info.IsDir()
 }
 
 func (a Matcher) Applicable(_ context.Context, _ sdkplugin.MatchRequest) (bool, error) {
