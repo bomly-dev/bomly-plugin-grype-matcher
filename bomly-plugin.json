@@ -21,7 +21,8 @@
   "access": {
     "filesystemRead": [
       "cache",
-      "home"
+      "home",
+      "temp"
     ],
     "filesystemWrite": [
       "cache",
@@ -37,6 +38,8 @@
       "LocalAppData",
       "NO_PROXY",
       "REQUEST_METHOD",
+      "TEMP",
+      "TMP",
       "TMPDIR",
       "USERPROFILE",
       "XDG_*",

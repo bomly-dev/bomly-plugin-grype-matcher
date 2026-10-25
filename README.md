@@ -58,10 +58,10 @@ This matcher performs network calls **only during enrichment** (`bomly scan
 | --- | --- |
 | Reads and writes `cache` | The vulnerability database, `<user cache dir>/grype/db` by default, and the scratch directory each download unpacks into there |
 | Reads `home` | On Linux, the XDG library Grype links reads `~/.config/user-dirs.dirs` when the process starts |
-| Writes `temp` | The database listing and the downloaded archive, before it is unpacked |
+| Reads and writes `temp` | The database listing and the downloaded archive, written there and read back while it is unpacked |
 | Network `grype.anchore.io` | The database listing and archive |
 | Environment `HOME`, `XDG_*`, `LocalAppData`, `USERPROFILE` | Locating the cache: `os.UserCacheDir` reads `XDG_CACHE_HOME` and `HOME` (`LocalAppData` on Windows), and the XDG library reads `HOME` and every `XDG_*` base directory when it starts, falling back to `USERPROFILE` on Windows |
-| Environment `TMPDIR` | `os.TempDir`, for the temporary files above |
+| Environment `TMPDIR`, `TMP`, `TEMP` | `os.TempDir`, for the temporary files above (`TMPDIR` on Unix, `TMP` or `TEMP` on Windows) |
 | Environment `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (and lower case), `REQUEST_METHOD` | Grype's download client uses Go's standard proxy lookup, which reads these |
 
 Setting `db_dir` moves the database to a place you chose; the declaration describes the default. `db_auto_update: false` stops the network access and the temporary files. The external variant starts `grype` instead, and its access is whatever that binary does. The matcher needs no particular pipeline input beyond the packages it is asked to match, so it declares no requirements.
