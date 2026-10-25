@@ -35,16 +35,36 @@ CI tests both variants. Release archives ship the builtin variant.
 This matcher performs network calls **only during enrichment** (`bomly scan
 --enrich`), never during audit-only runs:
 
-- builtin: `https://grype.anchore.io/databases` (plus the archive URL it
-  returns) to download the vulnerability database on first use and, at most
+- builtin: `https://grype.anchore.io/databases/v6/latest.json` (the listing)
+  and the archive it names, which Grype resolves against the same host, to
+  download the vulnerability database on first use and, at most
   once every `db_update_check_interval` (default 2h), to check for and
   download a newer build. The database is stored under the OS cache directory
   (`grype/db`) or `db_dir`. When it cannot be refreshed, the matcher keeps
   matching against the local copy and warns once the copy is older than
   `db_max_age` (default five days), because every advisory published since
   is missing from that run. `db_auto_update: false` skips the check entirely.
+  The download goes through Grype's own HTTP client, which honors the
+  standard `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` variables rather than
+  Bomly's proxy settings.
 - external: whatever the installed `grype` binary itself does (typically the
   same database service).
+
+## Access
+
+`bomly-plugin.json` declares what the matcher touches, which Bomly shows when you install it and in `bomly plugin info`. It is a disclosure, not a sandbox. It describes the builtin variant, which is what the release archives ship.
+
+| Access | Why |
+| --- | --- |
+| Reads and writes `cache` | The vulnerability database, `<user cache dir>/grype/db` by default, and the scratch directory each download unpacks into there |
+| Reads `home` | On Linux, the XDG library Grype links reads `~/.config/user-dirs.dirs` when the process starts |
+| Reads and writes `temp` | The database listing and the downloaded archive, written there and read back while it is unpacked |
+| Network `grype.anchore.io` | The database listing and archive |
+| Environment `HOME`, `XDG_*`, `LocalAppData`, `USERPROFILE` | Locating the cache: `os.UserCacheDir` reads `XDG_CACHE_HOME` and `HOME` (`LocalAppData` on Windows), and the XDG library reads `HOME` and every `XDG_*` base directory when it starts, falling back to `USERPROFILE` on Windows |
+| Environment `TMPDIR`, `TMP`, `TEMP` | `os.TempDir`, for the temporary files above (`TMPDIR` on Unix, `TMP` or `TEMP` on Windows) |
+| Environment `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (and lower case), `REQUEST_METHOD` | Grype's download client uses Go's standard proxy lookup, which reads these |
+
+Setting `db_dir` moves the database to a place you chose; the declaration describes the default. `db_auto_update: false` stops the network access and the temporary files. The external variant starts `grype` instead, and its access is whatever that binary does. The matcher needs no particular pipeline input beyond the packages it is asked to match, so it declares no requirements.
 
 ## Configuration
 
