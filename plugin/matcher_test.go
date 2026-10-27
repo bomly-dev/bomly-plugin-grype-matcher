@@ -350,12 +350,18 @@ func TestMapBuiltinMatchCarriesRichFields(t *testing.T) {
 // closed, and optionally fails every lookup.
 type closeCountingProvider struct {
 	closes  *int
+	lookups *int
 	findErr error
 }
 
-func (p closeCountingProvider) PackageSearchNames(grypepkg.Package) []string { return nil }
+// PackageSearchNames returns grype's own names for the package, so the
+// language matcher goes on to call FindVulnerabilities.
+func (p closeCountingProvider) PackageSearchNames(pkg grypepkg.Package) []string {
+	return grypeName.PackageNames(pkg)
+}
 
 func (p closeCountingProvider) FindVulnerabilities(...grypevuln.Criteria) ([]grypevuln.Vulnerability, error) {
+	*p.lookups++
 	return nil, p.findErr
 }
 
@@ -373,12 +379,12 @@ func (p closeCountingProvider) Close() error {
 // one left open per call is a handle leaked per call. It must be released
 // whether the lookups succeed or fail.
 func TestMatchClosesTheDatabaseReaderEveryCall(t *testing.T) {
-	closes := 0
+	closes, lookups := 0, 0
 	findErr := error(nil)
 	original := openVulnerabilityDB
 	t.Cleanup(func() { openVulnerabilityDB = original })
 	openVulnerabilityDB = func(Matcher, *zap.Logger, v6dist.Config) (grypevuln.Provider, *grypevuln.ProviderStatus, error) {
-		return closeCountingProvider{closes: &closes, findErr: findErr}, &grypevuln.ProviderStatus{}, nil
+		return closeCountingProvider{closes: &closes, lookups: &lookups, findErr: findErr}, &grypevuln.ProviderStatus{}, nil
 	}
 
 	graph := model.New()
@@ -402,7 +408,11 @@ func TestMatchClosesTheDatabaseReaderEveryCall(t *testing.T) {
 	// Grype logs a failed lookup and carries on, so Match's own result does
 	// not matter here; the reader is released either way.
 	findErr = errors.New("database is locked")
+	before := lookups
 	_, _ = (Matcher{}).Match(context.Background(), request)
+	if lookups == before {
+		t.Fatal("the failing provider was never queried, so the failed-lookup path went untested")
+	}
 	if closes != 4 {
 		t.Errorf("a Match whose lookups failed left the reader open: %d closes in total, want 4", closes)
 	}
