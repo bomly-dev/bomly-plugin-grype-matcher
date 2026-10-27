@@ -4,6 +4,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	grypepkg "github.com/anchore/grype/grype/pkg"
 	grypevuln "github.com/anchore/grype/grype/vulnerability"
 	"github.com/bomly-dev/bomly-sdk/testkit"
+	"go.uber.org/zap"
 
 	"github.com/bomly-dev/bomly-sdk/model"
 	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
@@ -341,5 +343,77 @@ func TestMapBuiltinMatchCarriesRichFields(t *testing.T) {
 	}
 	if len(v.CVSS) != 1 || len(v.EPSS) != 1 || len(v.CWEs) != 1 || len(v.KnownExploited) != 1 || len(v.Aliases) != 1 {
 		t.Fatalf("rich fields missing: %#v", v)
+	}
+}
+
+// closeCountingProvider is a database provider that records how often it is
+// closed, and optionally fails every lookup.
+type closeCountingProvider struct {
+	closes  *int
+	lookups *int
+	findErr error
+}
+
+// PackageSearchNames returns grype's own names for the package, so the
+// language matcher goes on to call FindVulnerabilities.
+func (p closeCountingProvider) PackageSearchNames(pkg grypepkg.Package) []string {
+	return grypeName.PackageNames(pkg)
+}
+
+func (p closeCountingProvider) FindVulnerabilities(...grypevuln.Criteria) ([]grypevuln.Vulnerability, error) {
+	*p.lookups++
+	return nil, p.findErr
+}
+
+func (p closeCountingProvider) VulnerabilityMetadata(grypevuln.Reference) (*grypevuln.Metadata, error) {
+	return nil, nil
+}
+
+func (p closeCountingProvider) Close() error {
+	*p.closes++
+	return nil
+}
+
+// TestMatchClosesTheDatabaseReaderEveryCall is bomly-plugin-grype-matcher#19:
+// each Match opens a SQLite reader, and a managed plugin serves many calls, so
+// one left open per call is a handle leaked per call. It must be released
+// whether the lookups succeed or fail.
+func TestMatchClosesTheDatabaseReaderEveryCall(t *testing.T) {
+	closes, lookups := 0, 0
+	findErr := error(nil)
+	original := openVulnerabilityDB
+	t.Cleanup(func() { openVulnerabilityDB = original })
+	openVulnerabilityDB = func(Matcher, *zap.Logger, v6dist.Config) (grypevuln.Provider, *grypevuln.ProviderStatus, error) {
+		return closeCountingProvider{closes: &closes, lookups: &lookups, findErr: findErr}, &grypevuln.ProviderStatus{}, nil
+	}
+
+	graph := model.New()
+	node := testkit.MustDependencyNode(t, "pkg:npm/left-pad@1.3.0")
+	if err := graph.AddNode(node); err != nil {
+		t.Fatal(err)
+	}
+	registry := model.NewPackageRegistry()
+	registry.Add(model.PackageFromDependencyNode(node))
+	request := sdkplugin.MatchRequest{Graph: graph, Registry: registry}
+
+	for range 3 {
+		if _, err := (Matcher{}).Match(context.Background(), request); err != nil {
+			t.Fatalf("Match: %v", err)
+		}
+	}
+	if closes != 3 {
+		t.Fatalf("3 successful Match calls closed the reader %d times, want 3", closes)
+	}
+
+	// Grype logs a failed lookup and carries on, so Match's own result does
+	// not matter here; the reader is released either way.
+	findErr = errors.New("database is locked")
+	before := lookups
+	_, _ = (Matcher{}).Match(context.Background(), request)
+	if lookups == before {
+		t.Fatal("the failing provider was never queried, so the failed-lookup path went untested")
+	}
+	if closes != 4 {
+		t.Errorf("a Match whose lookups failed left the reader open: %d closes in total, want 4", closes)
 	}
 }

@@ -57,11 +57,21 @@ func (a Matcher) Match(_ context.Context, req sdkplugin.MatchRequest) (sdkplugin
 	distCfg.ID = clioID
 
 	logger.Debug(fmt.Sprintf("Grype loading vulnerability database from %s", a.dbDir()))
-	provider, status, err := a.loadDB(logger, distCfg)
+	provider, status, err := openVulnerabilityDB(a, logger, distCfg)
 	if err != nil {
 		logger.Warn("Grype failed to load vulnerability DB, skipping", zap.Error(err))
 		return sdkplugin.MatchResult{Registry: req.Registry, MatcherStats: grypeMatcherStats(0, 0, 0)}, fmt.Errorf("grype vulnerability DB unavailable: %w", err)
 	}
+	// The provider holds an open SQLite reader, and the caller owns it, as
+	// grype's own CLI does when it defers closing it. Each Match opens its own,
+	// so closing it here is safe while another call is still matching; left
+	// open, a managed plugin serving many calls leaked one handle per call
+	// (bomly-plugin-grype-matcher#19).
+	defer func() {
+		if err := provider.Close(); err != nil {
+			logger.Debug("Grype vulnerability DB reader did not close cleanly", zap.Error(err))
+		}
+	}()
 	a.reportDBAge(logger, status.Built, time.Now())
 
 	packages := matchers.RegistryPackagesForGraph(req.Graph, req.Registry, req.Target)
@@ -93,6 +103,11 @@ func (a Matcher) Match(_ context.Context, req sdkplugin.MatchRequest) (sdkplugin
 		MatcherStats: grypeMatcherStats(matchedPackages, len(packages)-matchedPackages, vulnerabilities),
 	}, nil
 }
+
+// openVulnerabilityDB is how Match opens the database: Matcher.loadDB, held
+// in a variable so a test can substitute a provider and observe that Match
+// releases it.
+var openVulnerabilityDB = Matcher.loadDB
 
 // loadDB opens the local Grype database, first asking Grype's curator to
 // refresh it unless DisableDBUpdate is set. This is what grype.LoadVulnerabilityDB
