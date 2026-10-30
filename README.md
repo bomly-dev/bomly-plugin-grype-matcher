@@ -68,7 +68,8 @@ If the hosted database stops being available, it can be rebuilt from public
 sources with Anchore's [vunnel](https://github.com/anchore/vunnel) and
 [grype-db](https://github.com/anchore/grype-db), both Apache-2.0. Expect
 hours, about 8 GB, and a GitHub token for the advisory API's rate limits.
-Install the archive into the matcher's database directory with
+Build it for schema 6: that is the only schema this matcher reads, and it
+finds a database only under `<db_dir>/6`. Install the archive into the matcher's database directory with
 `GRYPE_DB_CACHE_DIR=<db_dir> grype db import <archive>`, then set
 `db_auto_update: false` so the matcher stops asking the hosted service.
 
