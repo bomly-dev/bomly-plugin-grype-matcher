@@ -50,6 +50,29 @@ This matcher performs network calls **only during enrichment** (`bomly scan
 - external: whatever the installed `grype` binary itself does (typically the
   same database service).
 
+## Upstream
+
+The builtin variant compiles in Anchore's Grype and Syft, both Apache-2.0,
+and depends on Anchore's hosted database, which publishes no terms or rate
+limits. Two tests in `plugin/upstream_test.go` fail a dependency bump that
+would change that silently:
+
+- `TestUpstreamLicensesAreUnchanged` fails when either library's `LICENSE`
+  file changes, so a relicense is read before it ships.
+- `TestGrypeVersionMeetsSchemaFloor` fails a Grype older than the oldest
+  version whose database schema Anchore still serves (`minGrypeVersion`).
+  Such a Grype does not error; it finds nothing. Raise the floor when Anchore
+  announces the next schema end of life.
+
+If the hosted database stops being available, it can be rebuilt from public
+sources with Anchore's [vunnel](https://github.com/anchore/vunnel) and
+[grype-db](https://github.com/anchore/grype-db), both Apache-2.0. Expect
+hours, about 8 GB, and a GitHub token for the advisory API's rate limits.
+Build it for schema 6: that is the only schema this matcher reads, and it
+finds a database only under `<db_dir>/6`. Install the archive into the matcher's database directory with
+`GRYPE_DB_CACHE_DIR=<db_dir> grype db import <archive>`, then set
+`db_auto_update: false` so the matcher stops asking the hosted service.
+
 ## Access
 
 `bomly-plugin.json` declares what the matcher touches, which Bomly shows when you install it and in `bomly plugin info`. It is a disclosure, not a sandbox. It describes the builtin variant, which is what the release archives ship.
