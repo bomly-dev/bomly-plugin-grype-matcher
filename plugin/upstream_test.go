@@ -52,19 +52,20 @@ func TestGrypeVersionMeetsSchemaFloor(t *testing.T) {
 	}
 }
 
-// upstreamModule resolves the version and module-cache directory the build
-// uses for path, as the go command reports them.
+// upstreamModule downloads path at the version the build selects and returns
+// that version and its module-cache directory. go list -m would not download
+// it, and the external variant compiles nothing from Grype that would have.
 func upstreamModule(t *testing.T, path string) (mod struct{ Version, Dir string }) {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-m", "-json", path).Output()
+	out, err := exec.Command("go", "mod", "download", "-json", path).Output()
 	if err != nil {
-		t.Fatalf("go list -m %s: %v", path, err)
+		t.Fatalf("go mod download %s: %v", path, err)
 	}
 	if err := json.Unmarshal(out, &mod); err != nil {
-		t.Fatalf("go list -m %s: decode: %v", path, err)
+		t.Fatalf("go mod download %s: decode: %v", path, err)
 	}
 	if mod.Version == "" || mod.Dir == "" {
-		t.Fatalf("go list -m %s: no version or directory in %s", path, out)
+		t.Fatalf("go mod download %s: no version or directory in %s", path, out)
 	}
 	return mod
 }
